@@ -173,28 +173,33 @@ class ArchiveExtractor:
             force_subfolder: 强制使用同名目录
 
         Returns:
-            解压目标目录
+            解压目标目录（目录名中空格已替换为下划线）
         """
         archive_path = archive_path.resolve()
         parent = archive_path.parent
 
         # 如果强制使用同名目录，直接返回
         if force_subfolder:
-            return parent / archive_path.stem
+            dir_name = archive_path.stem.replace(' ', '_')
+            return parent / dir_name
 
         # 检测压缩包内容结构
         is_single_dir, dir_name = self._check_archive_structure(archive_path)
 
         if is_single_dir and dir_name:
             # 单目录：解压到当前目录（直接使用内部目录名）
+            # 空格替换为下划线
+            dir_name = dir_name.replace(' ', '_')
             target = parent / dir_name
             if target.exists():
                 # 目录已存在，回退到同名目录
-                return parent / archive_path.stem
+                fallback_name = archive_path.stem.replace(' ', '_')
+                return parent / fallback_name
             return target
         else:
             # 多文件/多目录：解压到同名目录
-            return parent / archive_path.stem
+            dir_name = archive_path.stem.replace(' ', '_')
+            return parent / dir_name
 
     def _check_archive_structure(self, archive_path: Path) -> Tuple[bool, Optional[str]]:
         """
