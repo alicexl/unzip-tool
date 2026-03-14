@@ -138,19 +138,26 @@ class ArchiveExtractor:
 
         return volumes
 
-    def _flatten_if_single_directory(self, extract_dir: Path, archive_path: Path) -> None:
+    def _flatten_if_single_directory(self, extract_dir: Path, archive_path: Path) -> Path:
         """
-        如果解压结果是单一目录，将其内容提升到解压目录
+        如果解压结果是单一目录，使用该目录名作为最终目录
 
-        例如: extract_dir/photo/contents... -> extract_dir/contents...
+        例如: archive.zip 内含 photo/1.jpg
+              解压到 archive/photo/1.jpg -> 重命名为 photo/1.jpg
+
+        特殊情况: myfolder.zip 内含 myfolder/1.jpg
+                 解压到 myfolder/myfolder/1.jpg -> 重命名为 myfolder/1.jpg
 
         Args:
-            extract_dir: 解压目录
+            extract_dir: 解压目录（压缩包同名目录）
             archive_path: 压缩包路径
+
+        Returns:
+            最终的解压目录路径
         """
         try:
             if not extract_dir.exists() or not extract_dir.is_dir():
-                return
+                return extract_dir
 
             items = list(extract_dir.iterdir())
 
@@ -158,21 +165,50 @@ class ArchiveExtractor:
             if len(items) == 1 and items[0].is_dir():
                 single_dir = items[0]
                 parent = extract_dir.parent
-                temp_dir = parent / f"_{extract_dir.name}_temp"
+                target_dir = parent / single_dir.name
 
-                # 将单目录重命名为临时名
-                single_dir.rename(temp_dir)
+                # 目标目录已存在，保持原样
+                if target_dir.exists() and target_dir != extract_dir:
+                    logger.info(f"目标目录已存在，保持原样: {extract_dir.name}")
+                    return extract_dir
 
-                # 删除空的解压目录
-                extract_dir.rmdir()
+                # 如果目标目录就是当前解压目录（名称相同），需要提升内容
+                if target_dir == extract_dir:
+                    # 将内容提升到父目录（即替换当前目录）
+                    # 例如: myfolder/myfolder/* -> myfolder/*
+                    temp_dir = parent / f"_{extract_dir.name}_flatten_temp"
 
-                # 将临时目录重命名为解压目录
-                temp_dir.rename(extract_dir)
+                    # 先移动到临时位置
+                    shutil.move(str(single_dir), str(temp_dir))
 
-                logger.info(f"单目录提升: {single_dir.name} -> {extract_dir.name}")
+                    # 删除原目录（现在应该是空的）
+                    extract_dir.rmdir()
+
+                    # 重命名临时目录为目标目录
+                    temp_dir.rename(target_dir)
+
+                    logger.info(f"单目录提升: {extract_dir.name}/{single_dir.name} -> {target_dir.name}")
+                    return target_dir
+                else:
+                    # 单目录名与压缩包名不同，使用单目录名
+                    # 先将单目录移动到临时位置
+                    temp_dir = parent / f"_{single_dir.name}_temp"
+                    single_dir.rename(temp_dir)
+
+                    # 删除空的解压目录
+                    shutil.rmtree(extract_dir)
+
+                    # 将临时目录重命名为目标目录
+                    temp_dir.rename(target_dir)
+
+                    logger.info(f"单目录重命名: {extract_dir.name}/{single_dir.name} -> {target_dir.name}")
+                    return target_dir
+
+            return extract_dir
 
         except Exception as e:
-            logger.warning(f"单目录提升失败: {e}")
+            logger.warning(f"单目录处理失败: {e}")
+            return extract_dir
 
     def scan_archives(self, directory: Path) -> List[Path]:
         """
@@ -449,10 +485,11 @@ class ArchiveExtractor:
         if success:
             result['status'] = 'success'
             result['message'] = message
-            logger.info(f"解压成功: {archive_path.name} -> {extract_dir.name}")
 
-            # 智能处理：如果解压出单一目录，提升其内容
-            self._flatten_if_single_directory(extract_dir, archive_path)
+            # 智能处理：如果解压出单一目录，使用该目录名
+            final_dir = self._flatten_if_single_directory(extract_dir, archive_path)
+            result['extract_dir'] = final_dir
+            logger.info(f"解压成功: {archive_path.name} -> {final_dir.name}")
 
             # 删除压缩包
             if self.delete_after_extract:

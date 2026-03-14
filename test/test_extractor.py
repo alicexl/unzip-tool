@@ -427,7 +427,7 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertTrue(vol3.exists())
 
     def test_flatten_single_directory(self):
-        """测试单目录提升"""
+        """测试单目录重命名"""
         # 创建包含单目录的 ZIP
         zip_path = self.temp_dir / "single_dir.zip"
         with zipfile.ZipFile(zip_path, 'w') as zf:
@@ -438,14 +438,30 @@ class TestArchiveExtractor(unittest.TestCase):
         result = self.extractor.extract(zip_path)
         self.assertEqual(result['status'], 'success')
 
-        # 验证目录结构被提升
-        extract_dir = self.temp_dir / "single_dir"
+        # 验证：应该使用内部目录名 myfolder，而非压缩包名 single_dir
+        final_dir = self.temp_dir / "myfolder"
+        self.assertTrue(final_dir.exists(), "应该使用内部目录名 myfolder")
+        self.assertTrue((final_dir / "file1.txt").exists())
+        self.assertTrue((final_dir / "subdir" / "file2.txt").exists())
+
+        # 原压缩包同名目录不应存在
+        self.assertFalse((self.temp_dir / "single_dir").exists())
+
+    def test_flatten_same_name_directory(self):
+        """测试目录名与压缩包名相同时不重命名"""
+        # 创建包含单目录的 ZIP，目录名与压缩包名相同
+        zip_path = self.temp_dir / "myfolder.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr("myfolder/file1.txt", "content1")
+
+        # 解压
+        result = self.extractor.extract(zip_path)
+        self.assertEqual(result['status'], 'success')
+
+        # 目录名与压缩包名相同，保持原样
+        extract_dir = self.temp_dir / "myfolder"
         self.assertTrue(extract_dir.exists())
-        # myfolder 的内容应该被提升到 single_dir
         self.assertTrue((extract_dir / "file1.txt").exists())
-        self.assertTrue((extract_dir / "subdir" / "file2.txt").exists())
-        # myfolder 不应存在
-        self.assertFalse((extract_dir / "myfolder").exists())
 
     def test_no_flatten_multiple_items(self):
         """测试多项目不提升"""
