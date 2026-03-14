@@ -131,7 +131,9 @@ def extract(directory: Path, keep: bool, password: str):
     elapsed = datetime.now() - start_time
     print(f"\n{'=' * 40}")
     print(f"处理完成")
-    print(f"  - 总计: {stats['total']}")
+    print(f"  - 初始任务: {stats['initial']}")
+    if stats['discovered'] > 0:
+        print(f"  - 递归发现: {stats['discovered']}")
     print(f"  - 成功: {stats['success']}")
     print(f"  - 跳过: {stats['skipped']}")
     print(f"  - 失败: {stats['failed']}")

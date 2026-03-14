@@ -499,7 +499,9 @@ class ArchiveExtractor:
         file_progress_callback: Optional[callable] = None
     ) -> dict:
         """
-        批量解压（串行）
+        批量解压（串行），支持递归解压
+
+        解压成功后会扫描解压目录，发现新压缩包则追加到任务列表
 
         Args:
             archives: 压缩包列表
@@ -511,6 +513,8 @@ class ArchiveExtractor:
         """
         stats = {
             'total': len(archives),
+            'initial': len(archives),
+            'discovered': 0,
             'success': 0,
             'failed': 0,
             'skipped': 0,
@@ -518,7 +522,11 @@ class ArchiveExtractor:
             'details': []
         }
 
-        for i, archive_path in enumerate(archives):
+        # 使用索引遍历，支持动态添加任务
+        i = 0
+        while i < len(archives):
+            archive_path = archives[i]
+
             # 创建文件级进度回调包装器
             def file_callback(current, total, filename):
                 if file_progress_callback:
@@ -529,8 +537,20 @@ class ArchiveExtractor:
 
             if result['status'] == 'success':
                 stats['success'] += 1
-                if result['deleted']:
-                    stats['deleted'] += 1
+                if result.get('deleted'):
+                    stats['deleted'] += result.get('deleted_count', 1)
+
+                # 扫描解压目录，发现新压缩包
+                extract_dir = result.get('extract_dir')
+                if extract_dir and extract_dir.exists():
+                    new_archives = self.scan_archives(extract_dir)
+                    if new_archives:
+                        # 追加到任务列表末尾
+                        archives.extend(new_archives)
+                        stats['total'] = len(archives)
+                        stats['discovered'] += len(new_archives)
+                        logger.info(f"发现 {len(new_archives)} 个嵌套压缩包，已追加到任务列表")
+
             elif result['status'] == 'skipped':
                 stats['skipped'] += 1
             else:
@@ -539,8 +559,12 @@ class ArchiveExtractor:
             if progress_callback:
                 progress_callback(i + 1, len(archives), archive_path, result)
 
+            i += 1
+
         logger.info(
-            f"批量解压完成: 成功={stats['success']}, "
+            f"批量解压完成: 初始={stats['initial']}, "
+            f"发现={stats['discovered']}, "
+            f"成功={stats['success']}, "
             f"跳过={stats['skipped']}, "
             f"失败={stats['failed']}, "
             f"删除={stats['deleted']}"

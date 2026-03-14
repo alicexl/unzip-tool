@@ -486,6 +486,38 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertTrue((extract_dir / "dir1").exists())
         self.assertTrue((extract_dir / "dir2").exists())
 
+    def test_extract_all_discovered_archives(self):
+        """测试递归解压嵌套压缩包"""
+        # 创建嵌套的压缩包结构
+        # inner.zip 包含文件
+        inner_zip = self.temp_dir / "_inner.zip"
+        with zipfile.ZipFile(inner_zip, 'w') as zf:
+            zf.writestr("inner_file.txt", "inner content")
+
+        # outer.zip 包含 inner.zip
+        outer_zip = self.temp_dir / "outer.zip"
+        with zipfile.ZipFile(outer_zip, 'w') as zf:
+            zf.write(inner_zip, "nested.zip")
+
+        inner_zip.unlink()  # 删除临时文件
+
+        # 批量解压
+        archives = self.extractor.scan_archives(self.temp_dir)
+        self.assertEqual(len(archives), 1)  # 只有 outer.zip
+
+        stats = self.extractor.extract_all(archives)
+
+        # 应该解压了 2 个压缩包
+        self.assertEqual(stats['initial'], 1)
+        self.assertEqual(stats['discovered'], 1)  # 发现 1 个嵌套压缩包
+        self.assertEqual(stats['success'], 2)  # 两个都成功
+        self.assertEqual(stats['total'], 2)  # 总共 2 个任务
+
+        # 验证文件解压成功
+        outer_dir = self.temp_dir / "outer"
+        inner_dir = outer_dir / "nested"
+        self.assertTrue((inner_dir / "inner_file.txt").exists())
+
 
 if __name__ == '__main__':
     unittest.main()
