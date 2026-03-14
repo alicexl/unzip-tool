@@ -458,7 +458,7 @@ class ArchiveExtractor:
                 stats['failed'] += 1
 
             if progress_callback:
-                progress_callback(i + 1, len(archives), archive_path.name, result)
+                progress_callback(i + 1, len(archives), archive_path, result)
 
         logger.info(
             f"批量解压完成: 成功={stats['success']}, "
