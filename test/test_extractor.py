@@ -115,14 +115,15 @@ class TestArchiveExtractor(unittest.TestCase):
         self._create_zip(str(subdir1 / "sub1.zip"), {"file.txt": "sub1"})
         self._create_zip(str(subdir2 / "sub2.zip"), {"file.txt": "sub2"})
 
-        # 递归扫描
-        archives_recursive = self.extractor.scan_archives(self.temp_dir, recursive=True)
-        self.assertEqual(len(archives_recursive), 3)
+        # 递归扫描（默认行为）
+        archives = self.extractor.scan_archives(self.temp_dir)
+        self.assertEqual(len(archives), 3)
 
-        # 非递归扫描
-        archives_flat = self.extractor.scan_archives(self.temp_dir, recursive=False)
-        self.assertEqual(len(archives_flat), 1)
-        self.assertEqual(archives_flat[0].name, "root.zip")
+        # 验证路径正确
+        relative_paths = [str(a.relative_to(self.temp_dir)) for a in archives]
+        self.assertIn("root.zip", relative_paths)
+        self.assertIn("subdir1\\sub1.zip", relative_paths)
+        self.assertIn("subdir2\\deep\\sub2.zip", relative_paths)
 
     def test_extract_zip_success(self):
         """测试 ZIP 解压成功"""

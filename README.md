@@ -1,6 +1,6 @@
 # 压缩包解压工具
 
-自动解压 zip/rar/7z 文件到同名目录，解压成功后删除压缩包。
+递归搜索并解压 zip/rar/7z 文件到同名目录，解压成功后删除压缩包。
 
 ## 安装
 
@@ -13,7 +13,7 @@ pip install -r requirements.txt
 ## 使用
 
 ```bash
-# 基本使用（递归搜索子目录，解压后删除压缩包）
+# 基本使用（递归搜索，解压后删除压缩包）
 python run.py <目录>
 
 # 解压后保留压缩包
@@ -24,9 +24,6 @@ python run.py <目录> --keep
 python run.py <目录> -w <密码>
 python run.py <目录> --password <密码>
 
-# 仅搜索当前目录（不递归）
-python run.py <目录> --no-recursive
-
 # 示例
 python run.py D:/downloads
 python run.py "D:/我的文件" -k
@@ -36,7 +33,8 @@ python run.py D:/downloads -w mypassword
 ## 功能
 
 - **递归搜索**: 自动搜索所有子目录中的压缩包
-- **同名目录**: 解压到与压缩包同名的目录
+- **仅处理初始列表**: 以首次扫描结果为准，避免解压产生的新压缩包被重复处理
+- **同名目录**: 解压到与压缩包同名的目录（位于压缩包所在位置）
 - **自动删除**: 解压成功后自动删除压缩包
 - **密码支持**: 支持解压带密码的压缩包
 - **进度显示**: 实时显示解压进度
@@ -62,17 +60,14 @@ downloads/
     └── nested/
         └── data.7z
 
-执行后:
+执行 python run.py downloads 后:
 downloads/
-├── photo/
-│   └── ... (解压内容)
+├── photo/           ← 解压内容
 ├── subdir/
-│   └── video/
-│       └── ... (解压内容)
+│   └── video/       ← 解压内容
 └── deep/
     └── nested/
-        └── data/
-            └── ... (解压内容)
+        └── data/    ← 解压内容
 ```
 
 ## 参数
@@ -82,4 +77,3 @@ downloads/
 | `<目录>` | 包含压缩包的目录 |
 | `-k, --keep` | 解压后保留压缩包 |
 | `-w, --password` | 解压密码 |
-| `--no-recursive` | 不递归搜索子目录 |
