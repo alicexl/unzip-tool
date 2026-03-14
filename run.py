@@ -111,11 +111,11 @@ def extract(directory: Path, keep: bool, password: str):
 
         status = result['status']
         if status == 'success':
-            symbol = '✓'
+            symbol = '[OK]'
         elif status == 'skipped':
-            symbol = '→'
+            symbol = '[SKIP]'
         else:
-            symbol = '✗'
+            symbol = '[FAIL]'
 
         # 显示相对路径
         display_name = str(name.relative_to(directory))
