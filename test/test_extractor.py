@@ -102,6 +102,28 @@ class TestArchiveExtractor(unittest.TestCase):
         expected_count = 2 if SEVENZ_SUPPORTED else 1
         self.assertEqual(len(archives), expected_count)
 
+    def test_scan_archives_recursive(self):
+        """测试递归扫描子目录"""
+        # 创建子目录
+        subdir1 = self.temp_dir / "subdir1"
+        subdir2 = self.temp_dir / "subdir2" / "deep"
+        subdir1.mkdir()
+        subdir2.mkdir(parents=True)
+
+        # 在不同目录创建压缩包
+        self._create_zip("root.zip", {"file.txt": "root"})
+        self._create_zip(str(subdir1 / "sub1.zip"), {"file.txt": "sub1"})
+        self._create_zip(str(subdir2 / "sub2.zip"), {"file.txt": "sub2"})
+
+        # 递归扫描
+        archives_recursive = self.extractor.scan_archives(self.temp_dir, recursive=True)
+        self.assertEqual(len(archives_recursive), 3)
+
+        # 非递归扫描
+        archives_flat = self.extractor.scan_archives(self.temp_dir, recursive=False)
+        self.assertEqual(len(archives_flat), 1)
+        self.assertEqual(archives_flat[0].name, "root.zip")
+
     def test_extract_zip_success(self):
         """测试 ZIP 解压成功"""
         zip_path = self._create_zip("test.zip", {

@@ -50,12 +50,13 @@ class ArchiveExtractor:
         """检查文件是否是支持的压缩包"""
         return file_path.suffix.lower() in ARCHIVE_EXTENSIONS
 
-    def scan_archives(self, directory: Path) -> List[Path]:
+    def scan_archives(self, directory: Path, recursive: bool = True) -> List[Path]:
         """
         扫描目录中的压缩包文件
 
         Args:
             directory: 目录路径
+            recursive: 是否递归搜索子目录
 
         Returns:
             压缩包文件列表
@@ -63,10 +64,18 @@ class ArchiveExtractor:
         directory = directory.resolve()
         archives = []
 
-        for file_path in directory.iterdir():
-            if file_path.is_file() and self.is_archive(file_path):
-                archives.append(file_path)
-                logger.debug(f"发现压缩包: {file_path.name}")
+        if recursive:
+            # 递归搜索所有子目录
+            for file_path in directory.rglob('*'):
+                if file_path.is_file() and self.is_archive(file_path):
+                    archives.append(file_path)
+                    logger.debug(f"发现压缩包: {file_path.relative_to(directory)}")
+        else:
+            # 只搜索当前目录
+            for file_path in directory.iterdir():
+                if file_path.is_file() and self.is_archive(file_path):
+                    archives.append(file_path)
+                    logger.debug(f"发现压缩包: {file_path.name}")
 
         logger.info(f"扫描完成: 发现 {len(archives)} 个压缩包")
         return sorted(archives)

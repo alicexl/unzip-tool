@@ -44,13 +44,20 @@ def setup_logger(name: str, level: str = 'INFO') -> logging.Logger:
     default=None,
     help='解压密码'
 )
-def extract(directory: Path, keep: bool, password: str):
+@click.option(
+    '--no-recursive',
+    is_flag=True,
+    default=False,
+    help='不递归搜索子目录'
+)
+def extract(directory: Path, keep: bool, password: str, no_recursive: bool):
     """
     解压压缩包到同名目录
 
     DIRECTORY: 包含压缩包的目录
     """
     directory = directory.resolve()
+    recursive = not no_recursive
 
     logger = setup_logger('unzip_tool')
     delete_after = not keep
@@ -58,6 +65,7 @@ def extract(directory: Path, keep: bool, password: str):
     print(f"\n压缩包解压工具")
     print(f"{'=' * 40}")
     print(f"目录: {directory}")
+    print(f"搜索模式: {'递归（含子目录）' if recursive else '仅当前目录'}")
     print(f"解压后: {'保留' if keep else '删除'}压缩包")
     if password:
         print(f"密码: {'*' * len(password)}")
@@ -67,7 +75,7 @@ def extract(directory: Path, keep: bool, password: str):
     extractor = ArchiveExtractor(delete_after_extract=delete_after, password=password)
 
     # 扫描压缩包
-    archives = extractor.scan_archives(directory)
+    archives = extractor.scan_archives(directory, recursive=recursive)
 
     if not archives:
         print("未找到压缩包文件")
@@ -77,7 +85,9 @@ def extract(directory: Path, keep: bool, password: str):
     print(f"发现 {len(archives)} 个压缩包:\n")
     for arc in archives:
         size_mb = arc.stat().st_size / (1024 * 1024)
-        print(f"  - {arc.name} ({size_mb:.1f} MB)")
+        # 显示相对路径（递归模式）或文件名（非递归模式）
+        display_path = str(arc.relative_to(directory)) if recursive else arc.name
+        print(f"  - {display_path} ({size_mb:.1f} MB)")
 
     # 用户确认
     print(f"\n即将解压到同名目录")
@@ -96,12 +106,16 @@ def extract(directory: Path, keep: bool, password: str):
         """显示文件级进度"""
         # 截断过长的文件名
         display_name = filename if len(filename) <= 40 else "..." + filename[-37:]
-        print(f"\r    {archive_name}: [{file_current}/{file_total}] {display_name}", end="", flush=True)
+        # 显示相对路径
+        rel_path = archive_name
+        if len(rel_path) > 30:
+            rel_path = "..." + rel_path[-27:]
+        print(f"\r    {rel_path}: [{file_current}/{file_total}] {display_name}", end="", flush=True)
 
     def show_progress(current, total, name, result):
         """显示压缩包级进度"""
         # 先清空当前行（如果有文件进度的话）
-        print("\r" + " " * 80 + "\r", end="")
+        print("\r" + " " * 100 + "\r", end="")
 
         status = result['status']
         if status == 'success':
@@ -110,7 +124,10 @@ def extract(directory: Path, keep: bool, password: str):
             symbol = '→'
         else:
             symbol = '✗'
-        print(f"  [{current}/{total}] {symbol} {name} - {result['message']}")
+
+        # 显示相对路径
+        display_name = str(name.relative_to(directory)) if recursive else name.name
+        print(f"  [{current}/{total}] {symbol} {display_name} - {result['message']}")
 
     stats = extractor.extract_all(
         archives,
