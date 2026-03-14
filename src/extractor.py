@@ -30,14 +30,16 @@ ARCHIVE_EXTENSIONS = {'.zip', '.rar', '.7z'}
 class ArchiveExtractor:
     """压缩包解压器"""
 
-    def __init__(self, delete_after_extract: bool = True):
+    def __init__(self, delete_after_extract: bool = True, password: str = None):
         """
         初始化解压器
 
         Args:
             delete_after_extract: 解压成功后是否删除压缩包
+            password: 解压密码
         """
         self.delete_after_extract = delete_after_extract
+        self.password = password
 
         if not RAR_SUPPORTED:
             logger.warning("rarfile 未安装，RAR 格式将无法处理")
@@ -101,10 +103,16 @@ class ArchiveExtractor:
                 if bad_file is not None:
                     return False, f"ZIP 文件损坏: {bad_file}"
 
-                zf.extractall(extract_dir)
+                # 检查是否需要密码
+                pwd = self.password.encode() if self.password else None
+                zf.extractall(extract_dir, pwd=pwd)
 
             return True, "解压成功"
 
+        except RuntimeError as e:
+            if 'password' in str(e).lower() or 'encrypted' in str(e).lower():
+                return False, "需要密码或密码错误"
+            return False, f"解压失败: {e}"
         except zipfile.BadZipFile as e:
             return False, f"无效的 ZIP 文件: {e}"
         except Exception as e:
@@ -126,10 +134,12 @@ class ArchiveExtractor:
 
         try:
             with rarfile.RarFile(archive_path, 'r') as rf:
-                rf.extractall(extract_dir)
+                rf.extractall(extract_dir, pwd=self.password)
 
             return True, "解压成功"
 
+        except rarfile.PasswordRequired:
+            return False, "需要密码或密码错误"
         except rarfile.BadRarFile as e:
             return False, f"无效的 RAR 文件: {e}"
         except rarfile.NeedFirstVolume:
@@ -152,14 +162,18 @@ class ArchiveExtractor:
             return False, "py7zr 库未安装，无法处理 7z 文件"
 
         try:
-            with py7zr.SevenZipFile(archive_path, 'r') as szf:
+            with py7zr.SevenZipFile(archive_path, 'r', password=self.password) as szf:
                 szf.extractall(extract_dir)
 
             return True, "解压成功"
 
+        except py7zr.exceptions.PasswordRequired:
+            return False, "需要密码或密码错误"
         except py7zr.exceptions.Bad7zFile as e:
             return False, f"无效的 7z 文件: {e}"
         except Exception as e:
+            if 'password' in str(e).lower():
+                return False, "需要密码或密码错误"
             return False, f"解压失败: {e}"
 
     def extract(self, archive_path: Path) -> dict:

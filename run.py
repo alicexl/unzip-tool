@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 压缩包解压工具
-自动解压 zip/rar 文件到同名目录，解压成功后删除压缩包
+自动解压 zip/rar/7z 文件到同名目录，解压成功后删除压缩包
 """
 
 import click
@@ -39,7 +39,12 @@ def setup_logger(name: str, level: str = 'INFO') -> logging.Logger:
     default=False,
     help='解压后保留压缩包（不删除）'
 )
-def extract(directory: Path, keep: bool):
+@click.option(
+    '-w', '--password',
+    default=None,
+    help='解压密码'
+)
+def extract(directory: Path, keep: bool, password: str):
     """
     解压压缩包到同名目录
 
@@ -54,10 +59,12 @@ def extract(directory: Path, keep: bool):
     print(f"{'=' * 40}")
     print(f"目录: {directory}")
     print(f"解压后: {'保留' if keep else '删除'}压缩包")
+    if password:
+        print(f"密码: {'*' * len(password)}")
     print(f"{'=' * 40}\n")
 
     # 初始化解压器
-    extractor = ArchiveExtractor(delete_after_extract=delete_after)
+    extractor = ArchiveExtractor(delete_after_extract=delete_after, password=password)
 
     # 扫描压缩包
     archives = extractor.scan_archives(directory)

@@ -227,6 +227,53 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertIn('.7z', ARCHIVE_EXTENSIONS)
         self.assertEqual(len(ARCHIVE_EXTENSIONS), 3)
 
+    def test_extract_7z_with_password(self):
+        """测试带密码的 7z 解压"""
+        if not SEVENZ_SUPPORTED:
+            self.skipTest("py7zr 未安装")
+
+        # 创建带密码的 7z
+        sz_path = self.temp_dir / "protected.7z"
+        tmp_file = self.temp_dir / "_tmp.txt"
+        tmp_file.write_text("secret content")
+        with py7zr.SevenZipFile(sz_path, 'w', password='test123') as szf:
+            szf.write(tmp_file, "file.txt")
+        tmp_file.unlink()
+
+        # 不提供密码，应该失败
+        extractor_no_pwd = ArchiveExtractor(delete_after_extract=False)
+        result = extractor_no_pwd.extract(sz_path)
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn('密码', result['message'])
+
+        # 清理之前创建的空目录
+        extract_dir = self.temp_dir / "protected"
+        if extract_dir.exists():
+            shutil.rmtree(extract_dir, ignore_errors=True)
+
+        # 提供正确密码
+        extractor_with_pwd = ArchiveExtractor(delete_after_extract=False, password='test123')
+        result = extractor_with_pwd.extract(sz_path)
+        self.assertEqual(result['status'], 'success')
+
+    def test_extract_7z_wrong_password(self):
+        """测试 7z 错误密码"""
+        if not SEVENZ_SUPPORTED:
+            self.skipTest("py7zr 未安装")
+
+        # 创建带密码的 7z
+        sz_path = self.temp_dir / "wrong_pwd.7z"
+        tmp_file = self.temp_dir / "_tmp2.txt"
+        tmp_file.write_text("secret content")
+        with py7zr.SevenZipFile(sz_path, 'w', password='correct123') as szf:
+            szf.write(tmp_file, "file.txt")
+        tmp_file.unlink()
+
+        # 提供错误密码
+        extractor = ArchiveExtractor(delete_after_extract=False, password='wrong123')
+        result = extractor.extract(sz_path)
+        self.assertEqual(result['status'], 'failed')
+
 
 if __name__ == '__main__':
     unittest.main()
