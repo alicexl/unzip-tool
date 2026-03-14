@@ -297,6 +297,100 @@ class TestArchiveExtractor(unittest.TestCase):
         result = extractor.extract(sz_path)
         self.assertEqual(result['status'], 'failed')
 
+    def test_is_volume_archive(self):
+        """测试分卷文件识别"""
+        # 分卷首卷应被识别
+        self.assertTrue(self.extractor.is_archive(Path("test.7z.001")))
+        self.assertTrue(self.extractor.is_archive(Path("test.zip.001")))
+        self.assertTrue(self.extractor.is_archive(Path("test.rar.001")))
+
+        # 分卷后续卷不应被识别（会被跳过）
+        self.assertFalse(self.extractor.is_archive(Path("test.7z.002")))
+        self.assertFalse(self.extractor.is_archive(Path("test.7z.003")))
+
+        # 普通文件
+        self.assertFalse(self.extractor.is_archive(Path("test.001")))
+        self.assertFalse(self.extractor.is_archive(Path("test.txt")))
+
+    def test_is_volume_file(self):
+        """测试分卷文件检测（非首卷）"""
+        # 首卷不是分卷文件
+        self.assertFalse(self.extractor.is_volume_file(Path("test.7z.001")))
+
+        # 后续卷是分卷文件
+        self.assertTrue(self.extractor.is_volume_file(Path("test.7z.002")))
+        self.assertTrue(self.extractor.is_volume_file(Path("test.7z.003")))
+        self.assertTrue(self.extractor.is_volume_file(Path("test.zip.010")))
+
+        # 普通文件
+        self.assertFalse(self.extractor.is_volume_file(Path("test.7z")))
+        self.assertFalse(self.extractor.is_volume_file(Path("test.txt")))
+
+    def test_scan_archives_with_volumes(self):
+        """测试扫描分卷文件"""
+        # 创建模拟分卷文件
+        vol1 = self.temp_dir / "video.7z.001"
+        vol2 = self.temp_dir / "video.7z.002"
+        vol3 = self.temp_dir / "video.7z.003"
+        normal = self.temp_dir / "normal.zip"
+
+        # 写入一些数据
+        vol1.write_bytes(b"mock volume 1")
+        vol2.write_bytes(b"mock volume 2")
+        vol3.write_bytes(b"mock volume 3")
+        self._create_zip("normal.zip", {"file.txt": "content"})
+
+        # 扫描
+        archives = self.extractor.scan_archives(self.temp_dir)
+
+        # 应该只扫描到首卷和普通压缩包，跳过后续卷
+        names = [a.name for a in archives]
+        self.assertIn("video.7z.001", names)  # 首卷应被识别
+        self.assertIn("normal.zip", names)
+        self.assertNotIn("video.7z.002", names)  # 后续卷应被跳过
+        self.assertNotIn("video.7z.003", names)
+
+        # 总共2个
+        self.assertEqual(len(archives), 2)
+
+    def test_get_extract_dir_for_volume(self):
+        """测试分卷文件的解压目录"""
+        # 分卷文件解压目录应该是去掉分卷后缀
+        archive = Path("/tmp/video.7z.001")
+        extract_dir = self.extractor.get_extract_dir(archive)
+        # 应该去掉 .001 后缀
+        self.assertEqual(extract_dir, Path("/tmp/video.7z"))
+
+    def test_scan_archives_recursive_with_volumes(self):
+        """测试递归扫描包含分卷的子目录"""
+        # 创建子目录
+        subdir = self.temp_dir / "subdir"
+        subdir.mkdir()
+
+        # 在不同位置创建分卷文件
+        vol1 = self.temp_dir / "root.7z.001"
+        vol2 = self.temp_dir / "root.7z.002"
+        sub_vol1 = subdir / "sub.7z.001"
+        sub_vol2 = subdir / "sub.7z.002"
+
+        vol1.write_bytes(b"mock")
+        vol2.write_bytes(b"mock")
+        sub_vol1.write_bytes(b"mock")
+        sub_vol2.write_bytes(b"mock")
+
+        # 扫描
+        archives = self.extractor.scan_archives(self.temp_dir)
+
+        # 应该只扫描到两个首卷
+        relative_paths = [str(a.relative_to(self.temp_dir)) for a in archives]
+        self.assertEqual(len(archives), 2)
+        self.assertIn("root.7z.001", relative_paths)
+        self.assertIn("subdir\\sub.7z.001", relative_paths)
+
+        # 后续卷不应被扫描到
+        self.assertNotIn("root.7z.002", relative_paths)
+        self.assertNotIn("subdir\\sub.7z.002", relative_paths)
+
 
 if __name__ == '__main__':
     unittest.main()
