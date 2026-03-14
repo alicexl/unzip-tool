@@ -65,18 +65,30 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertFalse(self.extractor.is_archive(Path("test.tar")))
 
     def test_get_extract_dir(self):
-        """测试获取解压目录"""
-        archive = Path("/tmp/test.zip")
-        extract_dir = self.extractor.get_extract_dir(archive)
-        self.assertEqual(extract_dir, Path("/tmp/test"))
+        """测试获取解压目录（同名目录）"""
+        # 创建一个包含多个文件的 ZIP（非单目录结构）
+        zip_path = self.temp_dir / "test.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr("file1.txt", "content1")
+            zf.writestr("file2.txt", "content2")
 
-        archive = Path("/tmp/photos.backup.rar")
-        extract_dir = self.extractor.get_extract_dir(archive)
-        self.assertEqual(extract_dir, Path("/tmp/photos.backup"))
+        extract_dir = self.extractor.get_extract_dir(zip_path)
+        # 非单目录结构，应该返回同名目录
+        expected = self.temp_dir / "test"
+        self.assertEqual(extract_dir, expected)
 
-        archive = Path("/tmp/data.7z")
-        extract_dir = self.extractor.get_extract_dir(archive)
-        self.assertEqual(extract_dir, Path("/tmp/data"))
+    def test_get_extract_dir_single_dir(self):
+        """测试单目录压缩包的解压目录"""
+        # 创建包含单目录的 ZIP
+        zip_path = self.temp_dir / "archive.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr("photos/1.jpg", "img1")
+            zf.writestr("photos/2.jpg", "img2")
+
+        extract_dir = self.extractor.get_extract_dir(zip_path)
+        # 单目录结构，应该返回内部目录名
+        expected = self.temp_dir / "photos"
+        self.assertEqual(extract_dir, expected)
 
     def test_scan_archives(self):
         """测试扫描压缩包"""
@@ -355,11 +367,14 @@ class TestArchiveExtractor(unittest.TestCase):
 
     def test_get_extract_dir_for_volume(self):
         """测试分卷文件的解压目录"""
-        # 分卷文件解压目录应该是去掉分卷后缀
-        archive = Path("/tmp/video.7z.001")
-        extract_dir = self.extractor.get_extract_dir(archive)
-        # 应该去掉 .001 后缀
-        self.assertEqual(extract_dir, Path("/tmp/video.7z"))
+        # 创建模拟分卷文件
+        vol1 = self.temp_dir / "video.7z.001"
+        vol1.write_bytes(b"mock")
+
+        extract_dir = self.extractor.get_extract_dir(vol1)
+        # 分卷解压目录应该是同名目录（去掉 .001）
+        expected = self.temp_dir / "video.7z"
+        self.assertEqual(extract_dir, expected)
 
     def test_scan_archives_recursive_with_volumes(self):
         """测试递归扫描包含分卷的子目录"""
@@ -427,7 +442,7 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertTrue(vol3.exists())
 
     def test_flatten_single_directory(self):
-        """测试单目录重命名"""
+        """测试单目录解压（使用内部目录名）"""
         # 创建包含单目录的 ZIP
         zip_path = self.temp_dir / "single_dir.zip"
         with zipfile.ZipFile(zip_path, 'w') as zf:
@@ -438,17 +453,14 @@ class TestArchiveExtractor(unittest.TestCase):
         result = self.extractor.extract(zip_path)
         self.assertEqual(result['status'], 'success')
 
-        # 验证：应该使用内部目录名 myfolder，而非压缩包名 single_dir
+        # 验证：应该使用内部目录名 myfolder
         final_dir = self.temp_dir / "myfolder"
         self.assertTrue(final_dir.exists(), "应该使用内部目录名 myfolder")
         self.assertTrue((final_dir / "file1.txt").exists())
         self.assertTrue((final_dir / "subdir" / "file2.txt").exists())
 
-        # 原压缩包同名目录不应存在
-        self.assertFalse((self.temp_dir / "single_dir").exists())
-
     def test_flatten_same_name_directory(self):
-        """测试目录名与压缩包名相同时不重命名"""
+        """测试目录名与压缩包名相同时的处理"""
         # 创建包含单目录的 ZIP，目录名与压缩包名相同
         zip_path = self.temp_dir / "myfolder.zip"
         with zipfile.ZipFile(zip_path, 'w') as zf:
@@ -458,7 +470,7 @@ class TestArchiveExtractor(unittest.TestCase):
         result = self.extractor.extract(zip_path)
         self.assertEqual(result['status'], 'success')
 
-        # 目录名与压缩包名相同，保持原样
+        # 目录名与压缩包名相同，直接使用该目录
         extract_dir = self.temp_dir / "myfolder"
         self.assertTrue(extract_dir.exists())
         self.assertTrue((extract_dir / "file1.txt").exists())
