@@ -38,6 +38,7 @@ python run.py "D:/我的文件" -k
 |------|--------|------|
 | ZIP | `.zip` | Python 内置支持 |
 | RAR | `.rar` | 需要 rarfile 库 + UnRAR |
+| 7z | `.7z` | 需要 py7zr 库 |
 
 ## 示例
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 压缩包解压模块
-支持 zip 和 rar 格式
+支持 zip, rar, 7z 格式
 """
 
 import zipfile
@@ -15,10 +15,16 @@ try:
 except ImportError:
     RAR_SUPPORTED = False
 
+try:
+    import py7zr
+    SEVENZ_SUPPORTED = True
+except ImportError:
+    SEVENZ_SUPPORTED = False
+
 logger = logging.getLogger(__name__)
 
 # 支持的压缩包扩展名
-ARCHIVE_EXTENSIONS = {'.zip', '.rar'}
+ARCHIVE_EXTENSIONS = {'.zip', '.rar', '.7z'}
 
 
 class ArchiveExtractor:
@@ -35,6 +41,8 @@ class ArchiveExtractor:
 
         if not RAR_SUPPORTED:
             logger.warning("rarfile 未安装，RAR 格式将无法处理")
+        if not SEVENZ_SUPPORTED:
+            logger.warning("py7zr 未安装，7z 格式将无法处理")
 
     def is_archive(self, file_path: Path) -> bool:
         """检查文件是否是支持的压缩包"""
@@ -129,6 +137,31 @@ class ArchiveExtractor:
         except Exception as e:
             return False, f"解压失败: {e}"
 
+    def extract_7z(self, archive_path: Path, extract_dir: Path) -> Tuple[bool, str]:
+        """
+        解压 7z 文件
+
+        Args:
+            archive_path: 压缩包路径
+            extract_dir: 解压目标目录
+
+        Returns:
+            (是否成功, 消息)
+        """
+        if not SEVENZ_SUPPORTED:
+            return False, "py7zr 库未安装，无法处理 7z 文件"
+
+        try:
+            with py7zr.SevenZipFile(archive_path, 'r') as szf:
+                szf.extractall(extract_dir)
+
+            return True, "解压成功"
+
+        except py7zr.exceptions.Bad7zFile as e:
+            return False, f"无效的 7z 文件: {e}"
+        except Exception as e:
+            return False, f"解压失败: {e}"
+
     def extract(self, archive_path: Path) -> dict:
         """
         解压单个压缩包
@@ -171,6 +204,8 @@ class ArchiveExtractor:
             success, message = self.extract_zip(archive_path, extract_dir)
         elif ext == '.rar':
             success, message = self.extract_rar(archive_path, extract_dir)
+        elif ext == '.7z':
+            success, message = self.extract_7z(archive_path, extract_dir)
         else:
             result['message'] = f"不支持的格式: {ext}"
             return result

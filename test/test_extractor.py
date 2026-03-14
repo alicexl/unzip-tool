@@ -9,7 +9,12 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from src.extractor import ArchiveExtractor, ARCHIVE_EXTENSIONS
+from src.extractor import ArchiveExtractor, ARCHIVE_EXTENSIONS, SEVENZ_SUPPORTED
+
+try:
+    import py7zr
+except ImportError:
+    py7zr = None
 
 
 class TestArchiveExtractor(unittest.TestCase):
@@ -33,14 +38,31 @@ class TestArchiveExtractor(unittest.TestCase):
                 zf.writestr(filename, content)
         return zip_path
 
+    def _create_7z(self, name: str, files: dict) -> Path:
+        """创建测试用 7z 文件"""
+        if not SEVENZ_SUPPORTED:
+            self.skipTest("py7zr 未安装")
+
+        sz_path = self.temp_dir / name
+        with py7zr.SevenZipFile(sz_path, 'w') as szf:
+            for filename, content in files.items():
+                # 创建临时文件
+                tmp_file = self.temp_dir / f"_tmp_{filename}"
+                tmp_file.write_text(content)
+                szf.write(tmp_file, filename)
+                tmp_file.unlink()
+        return sz_path
+
     def test_is_archive(self):
         """测试压缩包识别"""
         self.assertTrue(self.extractor.is_archive(Path("test.zip")))
         self.assertTrue(self.extractor.is_archive(Path("test.ZIP")))
         self.assertTrue(self.extractor.is_archive(Path("test.rar")))
         self.assertTrue(self.extractor.is_archive(Path("test.RAR")))
+        self.assertTrue(self.extractor.is_archive(Path("test.7z")))
+        self.assertTrue(self.extractor.is_archive(Path("test.7Z")))
         self.assertFalse(self.extractor.is_archive(Path("test.txt")))
-        self.assertFalse(self.extractor.is_archive(Path("test.7z")))
+        self.assertFalse(self.extractor.is_archive(Path("test.tar")))
 
     def test_get_extract_dir(self):
         """测试获取解压目录"""
@@ -51,6 +73,10 @@ class TestArchiveExtractor(unittest.TestCase):
         archive = Path("/tmp/photos.backup.rar")
         extract_dir = self.extractor.get_extract_dir(archive)
         self.assertEqual(extract_dir, Path("/tmp/photos.backup"))
+
+        archive = Path("/tmp/data.7z")
+        extract_dir = self.extractor.get_extract_dir(archive)
+        self.assertEqual(extract_dir, Path("/tmp/data"))
 
     def test_scan_archives(self):
         """测试扫描压缩包"""
@@ -65,6 +91,16 @@ class TestArchiveExtractor(unittest.TestCase):
         names = [a.name for a in archives]
         self.assertIn("test1.zip", names)
         self.assertIn("test2.zip", names)
+
+    def test_scan_archives_with_7z(self):
+        """测试扫描包含 7z 的压缩包"""
+        self._create_zip("test.zip", {"file.txt": "content"})
+        if SEVENZ_SUPPORTED:
+            self._create_7z("test.7z", {"file.txt": "content"})
+
+        archives = self.extractor.scan_archives(self.temp_dir)
+        expected_count = 2 if SEVENZ_SUPPORTED else 1
+        self.assertEqual(len(archives), expected_count)
 
     def test_extract_zip_success(self):
         """测试 ZIP 解压成功"""
@@ -98,6 +134,29 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertFalse(result['deleted'])
         self.assertTrue(zip_path.exists())
 
+    def test_extract_7z_success(self):
+        """测试 7z 解压成功"""
+        if not SEVENZ_SUPPORTED:
+            self.skipTest("py7zr 未安装")
+
+        sz_path = self._create_7z("test.7z", {
+            "file1.txt": "hello",
+            "file2.txt": "world"
+        })
+
+        result = self.extractor.extract(sz_path)
+
+        self.assertEqual(result['status'], 'success')
+        self.assertTrue(result['deleted'])
+
+        # 验证解压目录存在
+        extract_dir = self.temp_dir / "test"
+        self.assertTrue(extract_dir.exists())
+        self.assertTrue((extract_dir / "file1.txt").exists())
+
+        # 验证压缩包已删除
+        self.assertFalse(sz_path.exists())
+
     def test_extract_skip_existing_dir(self):
         """测试跳过已存在目录"""
         zip_path = self._create_zip("existing.zip", {"file.txt": "content"})
@@ -118,6 +177,20 @@ class TestArchiveExtractor(unittest.TestCase):
         invalid_zip.write_text("not a valid zip file")
 
         result = self.extractor.extract(invalid_zip)
+
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn('无效', result['message'])
+
+    def test_extract_invalid_7z(self):
+        """测试解压无效 7z"""
+        if not SEVENZ_SUPPORTED:
+            self.skipTest("py7zr 未安装")
+
+        # 创建无效的 7z 文件
+        invalid_7z = self.temp_dir / "invalid.7z"
+        invalid_7z.write_text("not a valid 7z file")
+
+        result = self.extractor.extract(invalid_7z)
 
         self.assertEqual(result['status'], 'failed')
         self.assertIn('无效', result['message'])
@@ -151,7 +224,8 @@ class TestArchiveExtractor(unittest.TestCase):
         """测试支持的扩展名常量"""
         self.assertIn('.zip', ARCHIVE_EXTENSIONS)
         self.assertIn('.rar', ARCHIVE_EXTENSIONS)
-        self.assertEqual(len(ARCHIVE_EXTENSIONS), 2)
+        self.assertIn('.7z', ARCHIVE_EXTENSIONS)
+        self.assertEqual(len(ARCHIVE_EXTENSIONS), 3)
 
 
 if __name__ == '__main__':
