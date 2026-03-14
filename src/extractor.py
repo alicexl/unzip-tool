@@ -138,6 +138,42 @@ class ArchiveExtractor:
 
         return volumes
 
+    def _flatten_if_single_directory(self, extract_dir: Path, archive_path: Path) -> None:
+        """
+        如果解压结果是单一目录，将其内容提升到解压目录
+
+        例如: extract_dir/photo/contents... -> extract_dir/contents...
+
+        Args:
+            extract_dir: 解压目录
+            archive_path: 压缩包路径
+        """
+        try:
+            if not extract_dir.exists() or not extract_dir.is_dir():
+                return
+
+            items = list(extract_dir.iterdir())
+
+            # 只有一个项目且是目录
+            if len(items) == 1 and items[0].is_dir():
+                single_dir = items[0]
+                parent = extract_dir.parent
+                temp_dir = parent / f"_{extract_dir.name}_temp"
+
+                # 将单目录重命名为临时名
+                single_dir.rename(temp_dir)
+
+                # 删除空的解压目录
+                extract_dir.rmdir()
+
+                # 将临时目录重命名为解压目录
+                temp_dir.rename(extract_dir)
+
+                logger.info(f"单目录提升: {single_dir.name} -> {extract_dir.name}")
+
+        except Exception as e:
+            logger.warning(f"单目录提升失败: {e}")
+
     def scan_archives(self, directory: Path) -> List[Path]:
         """
         递归扫描目录及子目录中的压缩包文件
@@ -414,6 +450,9 @@ class ArchiveExtractor:
             result['status'] = 'success'
             result['message'] = message
             logger.info(f"解压成功: {archive_path.name} -> {extract_dir.name}")
+
+            # 智能处理：如果解压出单一目录，提升其内容
+            self._flatten_if_single_directory(extract_dir, archive_path)
 
             # 删除压缩包
             if self.delete_after_extract:

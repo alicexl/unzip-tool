@@ -426,6 +426,66 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertTrue(vol2.exists())
         self.assertTrue(vol3.exists())
 
+    def test_flatten_single_directory(self):
+        """测试单目录提升"""
+        # 创建包含单目录的 ZIP
+        zip_path = self.temp_dir / "single_dir.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr("myfolder/file1.txt", "content1")
+            zf.writestr("myfolder/subdir/file2.txt", "content2")
+
+        # 解压
+        result = self.extractor.extract(zip_path)
+        self.assertEqual(result['status'], 'success')
+
+        # 验证目录结构被提升
+        extract_dir = self.temp_dir / "single_dir"
+        self.assertTrue(extract_dir.exists())
+        # myfolder 的内容应该被提升到 single_dir
+        self.assertTrue((extract_dir / "file1.txt").exists())
+        self.assertTrue((extract_dir / "subdir" / "file2.txt").exists())
+        # myfolder 不应存在
+        self.assertFalse((extract_dir / "myfolder").exists())
+
+    def test_no_flatten_multiple_items(self):
+        """测试多项目不提升"""
+        # 创建包含多个项目的 ZIP
+        zip_path = self.temp_dir / "multi.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr("file1.txt", "content1")
+            zf.writestr("file2.txt", "content2")
+
+        # 解压（不删除）
+        extractor = ArchiveExtractor(delete_after_extract=False)
+        result = extractor.extract(zip_path)
+        self.assertEqual(result['status'], 'success')
+
+        # 验证目录结构未被提升
+        extract_dir = self.temp_dir / "multi"
+        self.assertTrue(extract_dir.exists())
+        self.assertTrue((extract_dir / "file1.txt").exists())
+        self.assertTrue((extract_dir / "file2.txt").exists())
+
+    def test_no_flatten_multiple_dirs(self):
+        """测试多目录不提升"""
+        # 创建包含多个目录的 ZIP
+        zip_path = self.temp_dir / "multidir.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr("dir1/file1.txt", "content1")
+            zf.writestr("dir2/file2.txt", "content2")
+
+        # 解压（不删除）
+        extractor = ArchiveExtractor(delete_after_extract=False)
+        result = extractor.extract(zip_path)
+        self.assertEqual(result['status'], 'success')
+
+        # 验证目录结构未被提升
+        extract_dir = self.temp_dir / "multidir"
+        self.assertTrue(extract_dir.exists())
+        # 两个目录都应存在
+        self.assertTrue((extract_dir / "dir1").exists())
+        self.assertTrue((extract_dir / "dir2").exists())
+
 
 if __name__ == '__main__':
     unittest.main()
