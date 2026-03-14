@@ -8,7 +8,9 @@
 pip install -r requirements.txt
 ```
 
-> 注意: RAR 格式需要系统安装 UnRAR 或 7-Zip
+> 注意:
+> - RAR 格式需要系统安装 UnRAR 或 7-Zip
+> - 分卷 7z 文件需要 7-Zip
 
 ## 使用
 
@@ -33,6 +35,7 @@ python run.py D:/downloads -w mypassword
 ## 功能
 
 - **递归搜索**: 自动搜索所有子目录中的压缩包
+- **分卷支持**: 支持 7z/zip/rar 分卷压缩包（如 `.7z.001`, `.zip.001`）
 - **仅处理初始列表**: 以首次扫描结果为准，避免解压产生的新压缩包被重复处理
 - **同名目录**: 解压到与压缩包同名的目录（位于压缩包所在位置）
 - **自动删除**: 解压成功后自动删除压缩包
@@ -42,11 +45,11 @@ python run.py D:/downloads -w mypassword
 
 ## 支持格式
 
-| 格式 | 扩展名 | 说明 |
-|------|--------|------|
-| ZIP | `.zip` | Python 内置支持 |
-| RAR | `.rar` | 需要 rarfile 库 + UnRAR |
-| 7z | `.7z` | 需要 py7zr 库 |
+| 格式 | 扩展名 | 分卷 | 说明 |
+|------|--------|------|------|
+| ZIP | `.zip` | `.zip.001` | Python 内置支持 |
+| RAR | `.rar` | `.rar.001` | 需要 rarfile 库 + UnRAR |
+| 7z | `.7z` | `.7z.001` | 需要 py7zr 或 7-Zip |
 
 ## 示例
 
@@ -54,20 +57,18 @@ python run.py D:/downloads -w mypassword
 目录结构:
 downloads/
 ├── photo.zip
-├── subdir/
-│   └── video.rar
-└── deep/
-    └── nested/
-        └── data.7z
+├── video.7z.001    ← 分卷首卷
+├── video.7z.002
+├── video.7z.003
+└── subdir/
+    └── data.rar
 
 执行 python run.py downloads 后:
 downloads/
 ├── photo/           ← 解压内容
-├── subdir/
-│   └── video/       ← 解压内容
-└── deep/
-    └── nested/
-        └── data/    ← 解压内容
+├── video/           ← 分卷解压内容
+└── subdir/
+    └── data/        ← 解压内容
 ```
 
 ## 参数

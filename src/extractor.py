@@ -6,6 +6,9 @@
 
 import zipfile
 import logging
+import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Tuple, List, Optional
 
@@ -25,6 +28,38 @@ logger = logging.getLogger(__name__)
 
 # 支持的压缩包扩展名
 ARCHIVE_EXTENSIONS = {'.zip', '.rar', '.7z'}
+
+# 分卷压缩文件的首卷扩展名（只处理首卷，避免重复）
+VOLUME_FIRST_EXTENSIONS = {'.001'}
+
+# 所有分卷扩展名模式
+VOLUME_PATTERN = re.compile(r'\.\d{3}$')
+
+
+def find_7z_executable() -> Optional[str]:
+    """查找 7z 可执行文件"""
+    # 常见安装路径
+    paths = [
+        r"C:\Program Files\7-Zip\7z.exe",
+        r"C:\Program Files (x86)\7-Zip\7z.exe",
+        "/usr/bin/7z",
+        "/usr/local/bin/7z",
+    ]
+
+    for path in paths:
+        if Path(path).exists():
+            return path
+
+    # 尝试从 PATH 查找
+    result = shutil.which("7z")
+    if result:
+        return result
+
+    return None
+
+
+# 7z 可执行文件路径
+SEVENZ_EXE = find_7z_executable()
 
 
 class ArchiveExtractor:
@@ -47,8 +82,38 @@ class ArchiveExtractor:
             logger.warning("py7zr 未安装，7z 格式将无法处理")
 
     def is_archive(self, file_path: Path) -> bool:
-        """检查文件是否是支持的压缩包"""
-        return file_path.suffix.lower() in ARCHIVE_EXTENSIONS
+        """检查文件是否是支持的压缩包（包括分卷）"""
+        suffix = file_path.suffix.lower()
+
+        # 普通压缩包
+        if suffix in ARCHIVE_EXTENSIONS:
+            return True
+
+        # 分卷压缩包首卷 (.001)
+        if suffix in VOLUME_FIRST_EXTENSIONS:
+            # 检查是否是压缩包的分卷（如 .7z.001, .zip.001）
+            name = file_path.name
+            # 匹配 .7z.001, .zip.001, .rar.001 等格式
+            for ext in ARCHIVE_EXTENSIONS:
+                if name.endswith(f'{ext}.001'):
+                    return True
+
+        return False
+
+    def is_volume_file(self, file_path: Path) -> bool:
+        """检查是否是分卷压缩文件（非首卷）"""
+        suffix = file_path.suffix.lower()
+        # 匹配 .002, .003, ... 等分卷
+        if VOLUME_PATTERN.match(suffix) and suffix != '.001':
+            name = file_path.name
+            for ext in ARCHIVE_EXTENSIONS:
+                if re.search(rf'\{ext}\.\d{{3}}$', name):
+                    return True
+        return False
+
+    def is_volume_archive(self, file_path: Path) -> bool:
+        """检查是否是分卷压缩文件（首卷）"""
+        return file_path.suffix.lower() == '.001'
 
     def scan_archives(self, directory: Path) -> List[Path]:
         """
@@ -65,9 +130,13 @@ class ArchiveExtractor:
 
         # 递归搜索所有子目录
         for file_path in directory.rglob('*'):
-            if file_path.is_file() and self.is_archive(file_path):
-                archives.append(file_path)
-                logger.debug(f"发现压缩包: {file_path.relative_to(directory)}")
+            if file_path.is_file():
+                # 跳过非首卷的分卷文件
+                if self.is_volume_file(file_path):
+                    continue
+                if self.is_archive(file_path):
+                    archives.append(file_path)
+                    logger.debug(f"发现压缩包: {file_path.relative_to(directory)}")
 
         logger.info(f"扫描完成: 发现 {len(archives)} 个压缩包")
         return sorted(archives)
@@ -167,7 +236,7 @@ class ArchiveExtractor:
 
     def extract_7z(self, archive_path: Path, extract_dir: Path, progress_callback=None) -> Tuple[bool, str]:
         """
-        解压 7z 文件
+        解压 7z 文件（包括分卷）
 
         Args:
             archive_path: 压缩包路径
@@ -177,22 +246,36 @@ class ArchiveExtractor:
         Returns:
             (是否成功, 消息)
         """
-        if not SEVENZ_SUPPORTED:
-            return False, "py7zr 库未安装，无法处理 7z 文件"
+        is_volume = self.is_volume_archive(archive_path)
 
+        # 分卷文件必须使用 7z.exe
+        if is_volume:
+            if not SEVENZ_EXE:
+                return False, "分卷 7z 文件需要 7-Zip，请安装 7-Zip"
+            return self._extract_7z_with_cli(archive_path, extract_dir, progress_callback)
+
+        # 普通 7z 文件优先使用 py7zr
+        if SEVENZ_SUPPORTED:
+            return self._extract_7z_with_py7zr(archive_path, extract_dir, progress_callback)
+
+        # 回退到 7z.exe
+        if SEVENZ_EXE:
+            return self._extract_7z_with_cli(archive_path, extract_dir, progress_callback)
+
+        return False, "py7zr 库和 7-Zip 均不可用"
+
+    def _extract_7z_with_py7zr(self, archive_path: Path, extract_dir: Path, progress_callback=None) -> Tuple[bool, str]:
+        """使用 py7zr 库解压"""
         try:
             with py7zr.SevenZipFile(archive_path, 'r', password=self.password) as szf:
-                # 获取文件列表
                 file_list = szf.getnames()
                 total = len(file_list)
 
-                # py7zr 不支持逐文件解压，先显示进度信息再统一解压
                 if progress_callback and total > 0:
                     progress_callback(0, total, "准备解压...")
 
                 szf.extractall(extract_dir)
 
-                # 解压完成后更新进度
                 if progress_callback and total > 0:
                     for i, filename in enumerate(file_list):
                         progress_callback(i + 1, total, filename)
@@ -206,6 +289,39 @@ class ArchiveExtractor:
         except Exception as e:
             if 'password' in str(e).lower():
                 return False, "需要密码或密码错误"
+            return False, f"解压失败: {e}"
+
+    def _extract_7z_with_cli(self, archive_path: Path, extract_dir: Path, progress_callback=None) -> Tuple[bool, str]:
+        """使用 7z.exe 命令行解压（支持分卷）"""
+        try:
+            cmd = [SEVENZ_EXE, 'x', str(archive_path), f'-o{extract_dir}', '-y']
+
+            if self.password:
+                cmd.append(f'-p{self.password}')
+
+            if progress_callback:
+                progress_callback(0, 1, "正在解压...")
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=3600  # 1小时超时
+            )
+
+            if result.returncode == 0:
+                if progress_callback:
+                    progress_callback(1, 1, "完成")
+                return True, "解压成功"
+            else:
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                if 'Wrong password' in error_msg or '密码' in error_msg:
+                    return False, "需要密码或密码错误"
+                return False, f"解压失败: {error_msg[:100]}"
+
+        except subprocess.TimeoutExpired:
+            return False, "解压超时"
+        except Exception as e:
             return False, f"解压失败: {e}"
 
     def extract(self, archive_path: Path, file_progress_callback=None) -> dict:
@@ -247,7 +363,21 @@ class ArchiveExtractor:
 
         # 根据扩展名选择解压方法
         ext = archive_path.suffix.lower()
-        if ext == '.zip':
+
+        # 处理分卷文件 (.001, .002 等)
+        if ext == '.001' or self.is_volume_archive(archive_path):
+            # 从文件名推断实际格式 (如 xxx.7z.001 -> 7z)
+            name = archive_path.name
+            if '.7z.' in name:
+                success, message = self.extract_7z(archive_path, extract_dir, file_progress_callback)
+            elif '.zip.' in name:
+                success, message = self.extract_zip(archive_path, extract_dir, file_progress_callback)
+            elif '.rar.' in name:
+                success, message = self.extract_rar(archive_path, extract_dir, file_progress_callback)
+            else:
+                result['message'] = f"未知的分卷格式: {name}"
+                return result
+        elif ext == '.zip':
             success, message = self.extract_zip(archive_path, extract_dir, file_progress_callback)
         elif ext == '.rar':
             success, message = self.extract_rar(archive_path, extract_dir, file_progress_callback)
