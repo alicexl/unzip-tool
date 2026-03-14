@@ -85,13 +85,14 @@ class ArchiveExtractor:
         name_without_ext = archive_path.stem
         return archive_path.parent / name_without_ext
 
-    def extract_zip(self, archive_path: Path, extract_dir: Path) -> Tuple[bool, str]:
+    def extract_zip(self, archive_path: Path, extract_dir: Path, progress_callback=None) -> Tuple[bool, str]:
         """
         解压 ZIP 文件
 
         Args:
             archive_path: 压缩包路径
             extract_dir: 解压目标目录
+            progress_callback: 进度回调 (current, total, filename)
 
         Returns:
             (是否成功, 消息)
@@ -103,9 +104,16 @@ class ArchiveExtractor:
                 if bad_file is not None:
                     return False, f"ZIP 文件损坏: {bad_file}"
 
-                # 检查是否需要密码
+                # 获取文件列表
+                file_list = zf.namelist()
+                total = len(file_list)
                 pwd = self.password.encode() if self.password else None
-                zf.extractall(extract_dir, pwd=pwd)
+
+                # 逐个解压并显示进度
+                for i, filename in enumerate(file_list):
+                    zf.extract(filename, extract_dir, pwd=pwd)
+                    if progress_callback:
+                        progress_callback(i + 1, total, filename)
 
             return True, "解压成功"
 
@@ -118,13 +126,14 @@ class ArchiveExtractor:
         except Exception as e:
             return False, f"解压失败: {e}"
 
-    def extract_rar(self, archive_path: Path, extract_dir: Path) -> Tuple[bool, str]:
+    def extract_rar(self, archive_path: Path, extract_dir: Path, progress_callback=None) -> Tuple[bool, str]:
         """
         解压 RAR 文件
 
         Args:
             archive_path: 压缩包路径
             extract_dir: 解压目标目录
+            progress_callback: 进度回调 (current, total, filename)
 
         Returns:
             (是否成功, 消息)
@@ -134,7 +143,15 @@ class ArchiveExtractor:
 
         try:
             with rarfile.RarFile(archive_path, 'r') as rf:
-                rf.extractall(extract_dir, pwd=self.password)
+                # 获取文件列表
+                file_list = rf.namelist()
+                total = len(file_list)
+
+                # 逐个解压并显示进度
+                for i, info in enumerate(rf.infolist()):
+                    rf.extract(info, extract_dir, pwd=self.password)
+                    if progress_callback:
+                        progress_callback(i + 1, total, info.filename)
 
             return True, "解压成功"
 
@@ -147,13 +164,14 @@ class ArchiveExtractor:
         except Exception as e:
             return False, f"解压失败: {e}"
 
-    def extract_7z(self, archive_path: Path, extract_dir: Path) -> Tuple[bool, str]:
+    def extract_7z(self, archive_path: Path, extract_dir: Path, progress_callback=None) -> Tuple[bool, str]:
         """
         解压 7z 文件
 
         Args:
             archive_path: 压缩包路径
             extract_dir: 解压目标目录
+            progress_callback: 进度回调 (current, total, filename)
 
         Returns:
             (是否成功, 消息)
@@ -163,7 +181,20 @@ class ArchiveExtractor:
 
         try:
             with py7zr.SevenZipFile(archive_path, 'r', password=self.password) as szf:
+                # 获取文件列表
+                file_list = szf.getnames()
+                total = len(file_list)
+
+                # py7zr 不支持逐文件解压，先显示进度信息再统一解压
+                if progress_callback and total > 0:
+                    progress_callback(0, total, "准备解压...")
+
                 szf.extractall(extract_dir)
+
+                # 解压完成后更新进度
+                if progress_callback and total > 0:
+                    for i, filename in enumerate(file_list):
+                        progress_callback(i + 1, total, filename)
 
             return True, "解压成功"
 
@@ -176,12 +207,13 @@ class ArchiveExtractor:
                 return False, "需要密码或密码错误"
             return False, f"解压失败: {e}"
 
-    def extract(self, archive_path: Path) -> dict:
+    def extract(self, archive_path: Path, file_progress_callback=None) -> dict:
         """
         解压单个压缩包
 
         Args:
             archive_path: 压缩包路径
+            file_progress_callback: 文件级进度回调 (current, total, filename)
 
         Returns:
             结果字典
@@ -215,11 +247,11 @@ class ArchiveExtractor:
         # 根据扩展名选择解压方法
         ext = archive_path.suffix.lower()
         if ext == '.zip':
-            success, message = self.extract_zip(archive_path, extract_dir)
+            success, message = self.extract_zip(archive_path, extract_dir, file_progress_callback)
         elif ext == '.rar':
-            success, message = self.extract_rar(archive_path, extract_dir)
+            success, message = self.extract_rar(archive_path, extract_dir, file_progress_callback)
         elif ext == '.7z':
-            success, message = self.extract_7z(archive_path, extract_dir)
+            success, message = self.extract_7z(archive_path, extract_dir, file_progress_callback)
         else:
             result['message'] = f"不支持的格式: {ext}"
             return result
@@ -253,14 +285,16 @@ class ArchiveExtractor:
     def extract_all(
         self,
         archives: List[Path],
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[callable] = None,
+        file_progress_callback: Optional[callable] = None
     ) -> dict:
         """
         批量解压（串行）
 
         Args:
             archives: 压缩包列表
-            progress_callback: 进度回调 (current, total, archive_name, result)
+            progress_callback: 压缩包级进度回调 (current, total, archive_name, result)
+            file_progress_callback: 文件级进度回调 (archive_name, file_current, file_total, filename)
 
         Returns:
             统计结果
@@ -275,7 +309,12 @@ class ArchiveExtractor:
         }
 
         for i, archive_path in enumerate(archives):
-            result = self.extract(archive_path)
+            # 创建文件级进度回调包装器
+            def file_callback(current, total, filename):
+                if file_progress_callback:
+                    file_progress_callback(archive_path.name, current, total, filename)
+
+            result = self.extract(archive_path, file_progress_callback=file_callback)
             stats['details'].append(result)
 
             if result['status'] == 'success':

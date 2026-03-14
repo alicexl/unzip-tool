@@ -92,7 +92,17 @@ def extract(directory: Path, keep: bool, password: str):
     start_time = datetime.now()
     print(f"\n开始解压...\n")
 
+    def show_file_progress(archive_name, file_current, file_total, filename):
+        """显示文件级进度"""
+        # 截断过长的文件名
+        display_name = filename if len(filename) <= 40 else "..." + filename[-37:]
+        print(f"\r    {archive_name}: [{file_current}/{file_total}] {display_name}", end="", flush=True)
+
     def show_progress(current, total, name, result):
+        """显示压缩包级进度"""
+        # 先清空当前行（如果有文件进度的话）
+        print("\r" + " " * 80 + "\r", end="")
+
         status = result['status']
         if status == 'success':
             symbol = '✓'
@@ -102,7 +112,11 @@ def extract(directory: Path, keep: bool, password: str):
             symbol = '✗'
         print(f"  [{current}/{total}] {symbol} {name} - {result['message']}")
 
-    stats = extractor.extract_all(archives, progress_callback=show_progress)
+    stats = extractor.extract_all(
+        archives,
+        progress_callback=show_progress,
+        file_progress_callback=show_file_progress
+    )
 
     # 显示结果
     elapsed = datetime.now() - start_time
