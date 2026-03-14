@@ -115,6 +115,29 @@ class ArchiveExtractor:
         """检查是否是分卷压缩文件（首卷）"""
         return file_path.suffix.lower() == '.001'
 
+    def get_all_volumes(self, first_volume: Path) -> List[Path]:
+        """
+        获取分卷压缩包的所有分卷文件
+
+        Args:
+            first_volume: 首卷文件路径 (.001)
+
+        Returns:
+            所有分卷文件列表
+        """
+        volumes = [first_volume]
+        base = str(first_volume)[:-4]  # 去掉 .001
+
+        # 查找后续分卷 .002, .003, ...
+        for i in range(2, 1000):  # 最多支持 999 个分卷
+            vol_path = Path(f"{base}.{i:03d}")
+            if vol_path.exists():
+                volumes.append(vol_path)
+            else:
+                break
+
+        return volumes
+
     def scan_archives(self, directory: Path) -> List[Path]:
         """
         递归扫描目录及子目录中的压缩包文件
@@ -394,12 +417,29 @@ class ArchiveExtractor:
 
             # 删除压缩包
             if self.delete_after_extract:
-                try:
-                    archive_path.unlink()
-                    result['deleted'] = True
-                    logger.info(f"已删除: {archive_path.name}")
-                except Exception as e:
-                    logger.warning(f"删除失败 {archive_path.name}: {e}")
+                deleted_count = 0
+
+                # 如果是分卷文件，删除所有分卷
+                if self.is_volume_archive(archive_path):
+                    all_volumes = self.get_all_volumes(archive_path)
+                    for vol in all_volumes:
+                        try:
+                            vol.unlink()
+                            deleted_count += 1
+                            logger.info(f"已删除分卷: {vol.name}")
+                        except Exception as e:
+                            logger.warning(f"删除分卷失败 {vol.name}: {e}")
+                else:
+                    # 普通压缩包
+                    try:
+                        archive_path.unlink()
+                        deleted_count = 1
+                        logger.info(f"已删除: {archive_path.name}")
+                    except Exception as e:
+                        logger.warning(f"删除失败 {archive_path.name}: {e}")
+
+                result['deleted'] = deleted_count > 0
+                result['deleted_count'] = deleted_count
         else:
             result['message'] = message
             logger.error(f"解压失败 {archive_path.name}: {message}")

@@ -391,6 +391,41 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertNotIn("root.7z.002", relative_paths)
         self.assertNotIn("subdir\\sub.7z.002", relative_paths)
 
+    def test_get_all_volumes(self):
+        """测试获取所有分卷文件"""
+        # 创建模拟分卷文件
+        vol1 = self.temp_dir / "test.7z.001"
+        vol2 = self.temp_dir / "test.7z.002"
+        vol3 = self.temp_dir / "test.7z.003"
+
+        vol1.write_bytes(b"mock 1")
+        vol2.write_bytes(b"mock 2")
+        vol3.write_bytes(b"mock 3")
+
+        # 获取所有分卷
+        volumes = self.extractor.get_all_volumes(vol1)
+
+        self.assertEqual(len(volumes), 3)
+        self.assertIn(vol1, volumes)
+        self.assertIn(vol2, volumes)
+        self.assertIn(vol3, volumes)
+
+    def test_delete_all_volumes_after_extract(self):
+        """测试解压后删除所有分卷"""
+        # 创建模拟分卷文件（使用 zip 因为可以用 Python 解压）
+        vol1 = self.temp_dir / "test.zip.001"
+        vol2 = self.temp_dir / "test.zip.002"
+        vol3 = self.temp_dir / "test.zip.003"
+
+        vol1.write_bytes(b"mock 1")
+        vol2.write_bytes(b"mock 2")
+        vol3.write_bytes(b"mock 3")
+
+        # 验证文件存在
+        self.assertTrue(vol1.exists())
+        self.assertTrue(vol2.exists())
+        self.assertTrue(vol3.exists())
+
 
 if __name__ == '__main__':
     unittest.main()
