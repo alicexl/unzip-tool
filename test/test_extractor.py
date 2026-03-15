@@ -372,8 +372,8 @@ class TestArchiveExtractor(unittest.TestCase):
         vol1.write_bytes(b"mock")
 
         extract_dir = self.extractor.get_extract_dir(vol1)
-        # 分卷解压目录应该是同名目录（去掉 .001）
-        expected = self.temp_dir / "video.7z"
+        # 分卷解压目录应该是基础名（去掉 .7z.001）
+        expected = self.temp_dir / "video"
         self.assertEqual(extract_dir, expected)
 
     def test_scan_archives_recursive_with_volumes(self):
@@ -616,6 +616,40 @@ class TestArchiveExtractor(unittest.TestCase):
         for original, expected in test_cases:
             result = extractor._sanitize_filename(original)
             self.assertEqual(result, expected, f"Failed for: {original}")
+
+    def test_get_archive_base_name(self):
+        """测试分卷文件基础名称获取"""
+        extractor = ArchiveExtractor()
+
+        # 测试用例
+        test_cases = [
+            (Path("test.7z.001"), "test"),
+            (Path("test.7z.002"), "test"),
+            (Path("archive.rar.001"), "archive"),
+            (Path("data.zip.001"), "data"),
+            (Path("normal.zip"), "normal"),
+            (Path("NO.410.7z.001"), "NO.410"),
+            (Path("photo [111P].7z.001"), "photo [111P]"),  # 中括号在基础名测试中保留
+        ]
+
+        for archive_path, expected in test_cases:
+            result = extractor._get_archive_base_name(archive_path)
+            self.assertEqual(result, expected, f"Failed for: {archive_path}")
+
+    def test_volume_archive_name_sanitization(self):
+        """测试分卷文件名的目录名清理"""
+        extractor = ArchiveExtractor()
+
+        # 测试 get_extract_dir 对分卷文件的处理
+        # 创建一个模拟的分卷文件路径
+        volume_path = self.temp_dir / "NO.410 [test].7z.001"
+        volume_path.touch()
+
+        extract_dir = extractor.get_extract_dir(volume_path, force_subfolder=True)
+
+        # 验证目录名被正确清理
+        # 基础名是 "NO.410 [test]"，清理后应该是 "NO.410"
+        self.assertEqual(extract_dir.name, "NO.410")
 
     def test_space_in_directory_name(self):
         """测试目录名中的空格替换为下划线"""

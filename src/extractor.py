@@ -164,6 +164,28 @@ class ArchiveExtractor:
         logger.info(f"扫描完成: 发现 {len(archives)} 个压缩包")
         return sorted(archives)
 
+    def _get_archive_base_name(self, archive_path: Path) -> str:
+        """
+        获取压缩包的基础名称（处理分卷文件）
+
+        Args:
+            archive_path: 压缩包路径
+
+        Returns:
+            基础名称（不含扩展名和分卷号）
+        """
+        name = archive_path.name
+
+        # 处理分卷文件: .7z.001, .rar.001, .zip.001
+        for ext in ['.7z.', '.rar.', '.zip.']:
+            if ext in name:
+                # 找到扩展名的位置，取之前的部分
+                idx = name.find(ext)
+                return name[:idx]
+
+        # 普通文件：返回 stem
+        return archive_path.stem
+
     def get_extract_dir(self, archive_path: Path, force_subfolder: bool = False) -> Path:
         """
         获取解压目标目录
@@ -173,14 +195,17 @@ class ArchiveExtractor:
             force_subfolder: 强制使用同名目录
 
         Returns:
-            解压目标目录（目录名中空格已替换为下划线）
+            解压目标目录（目录名已清理：中括号+空格）
         """
         archive_path = archive_path.resolve()
         parent = archive_path.parent
 
+        # 获取压缩包基础名称（处理分卷文件）
+        base_name = self._get_archive_base_name(archive_path)
+
         # 如果强制使用同名目录，直接返回
         if force_subfolder:
-            dir_name = archive_path.stem.replace(' ', '_')
+            dir_name = self._sanitize_filename(base_name)
             return parent / dir_name
 
         # 检测压缩包内容结构
@@ -188,17 +213,16 @@ class ArchiveExtractor:
 
         if is_single_dir and dir_name:
             # 单目录：解压到当前目录（直接使用内部目录名）
-            # 空格替换为下划线
-            dir_name = dir_name.replace(' ', '_')
+            dir_name = self._sanitize_filename(dir_name)
             target = parent / dir_name
             if target.exists():
                 # 目录已存在，回退到同名目录
-                fallback_name = archive_path.stem.replace(' ', '_')
+                fallback_name = self._sanitize_filename(base_name)
                 return parent / fallback_name
             return target
         else:
             # 多文件/多目录：解压到同名目录
-            dir_name = archive_path.stem.replace(' ', '_')
+            dir_name = self._sanitize_filename(base_name)
             return parent / dir_name
 
     def _check_archive_structure(self, archive_path: Path) -> Tuple[bool, Optional[str]]:
