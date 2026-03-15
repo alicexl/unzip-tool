@@ -464,6 +464,50 @@ class ArchiveExtractor:
         except Exception as e:
             return False, f"解压失败: {e}"
 
+    def _rename_extracted_dir(self, archive_path: Path, extract_dir: Path, is_single_dir: bool) -> Path:
+        """
+        重命名解压后的目录（空格替换为下划线）
+
+        Args:
+            archive_path: 压缩包路径
+            extract_dir: 预期的解压目录
+            is_single_dir: 是否是单目录结构
+
+        Returns:
+            最终的目录路径
+        """
+        parent = archive_path.parent
+
+        if is_single_dir:
+            # 单目录结构：解压到父目录，需要找到实际创建的目录
+            # 检查是否有带空格的目录需要重命名
+            for item in parent.iterdir():
+                if item.is_dir() and ' ' in item.name:
+                    new_name = item.name.replace(' ', '_')
+                    new_path = parent / new_name
+                    if not new_path.exists():
+                        try:
+                            item.rename(new_path)
+                            logger.info(f"重命名目录: {item.name} -> {new_name}")
+                            return new_path
+                        except Exception as e:
+                            logger.warning(f"重命名失败: {e}")
+                            return item
+            return extract_dir
+        else:
+            # 多文件结构：检查解压目录名是否有空格
+            if ' ' in extract_dir.name:
+                new_name = extract_dir.name.replace(' ', '_')
+                new_path = extract_dir.parent / new_name
+                if not new_path.exists() and extract_dir.exists():
+                    try:
+                        extract_dir.rename(new_path)
+                        logger.info(f"重命名目录: {extract_dir.name} -> {new_name}")
+                        return new_path
+                    except Exception as e:
+                        logger.warning(f"重命名失败: {e}")
+            return extract_dir
+
     def extract(self, archive_path: Path, file_progress_callback=None) -> dict:
         """
         解压单个压缩包
@@ -539,8 +583,11 @@ class ArchiveExtractor:
         if success:
             result['status'] = 'success'
             result['message'] = message
-            result['extract_dir'] = extract_dir
-            logger.info(f"解压成功: {archive_path.name} -> {extract_dir.name}")
+
+            # 重命名目录（将空格替换为下划线）
+            final_dir = self._rename_extracted_dir(archive_path, extract_dir, is_single_dir)
+            result['extract_dir'] = final_dir
+            logger.info(f"解压成功: {archive_path.name} -> {final_dir.name}")
 
             # 删除压缩包
             if self.delete_after_extract:

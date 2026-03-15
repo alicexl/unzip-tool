@@ -546,6 +546,24 @@ class TestArchiveExtractor(unittest.TestCase):
         inner_dir = outer_dir / "nested"
         self.assertTrue((inner_dir / "inner_file.txt").exists())
 
+    def test_space_in_directory_name(self):
+        """测试目录名中的空格替换为下划线"""
+        # 创建包含带空格目录名的 ZIP
+        zip_path = self.temp_dir / "space test.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr("my folder/file1.txt", "content1")
+
+        # 解压
+        extractor = ArchiveExtractor(delete_after_extract=False)
+        result = extractor.extract(zip_path)
+        self.assertEqual(result['status'], 'success')
+
+        # 验证目录名空格被替换为下划线
+        final_dir = result['extract_dir']
+        self.assertEqual(final_dir.name, "my_folder")
+        self.assertTrue(final_dir.exists())
+        self.assertTrue((final_dir / "file1.txt").exists())
+
 
 if __name__ == '__main__':
     unittest.main()
