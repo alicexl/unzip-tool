@@ -464,9 +464,43 @@ class ArchiveExtractor:
         except Exception as e:
             return False, f"解压失败: {e}"
 
+    def _sanitize_filename(self, name: str) -> str:
+        """
+        清理文件名（移除中括号内容，替换空格为下划线）
+
+        规则：
+        1. 移除中括号 [...] 及其内容
+        2. 如果移除后为空（或只有空格），则保留中括号内的内容（不含中括号）
+        3. 替换空格为下划线
+
+        Args:
+            name: 原始文件名
+
+        Returns:
+            清理后的文件名
+        """
+        if not name:
+            return name
+
+        import re
+
+        # 移除中括号及其内容
+        cleaned = re.sub(r'\[[^\]]*\]', '', name).strip()
+
+        # 如果移除后为空，提取中括号内的内容
+        if not cleaned:
+            match = re.search(r'\[([^\]]+)\]', name)
+            if match:
+                cleaned = match.group(1).strip()
+
+        # 替换空格为下划线
+        cleaned = cleaned.replace(' ', '_')
+
+        return cleaned if cleaned else name
+
     def _rename_extracted_dir(self, archive_path: Path, extract_dir: Path, is_single_dir: bool) -> Path:
         """
-        重命名解压后的目录（空格替换为下划线）
+        重命名解压后的目录（移除中括号内容，空格替换为下划线）
 
         Args:
             archive_path: 压缩包路径
@@ -480,24 +514,25 @@ class ArchiveExtractor:
 
         if is_single_dir:
             # 单目录结构：解压到父目录，需要找到实际创建的目录
-            # 检查是否有带空格的目录需要重命名
+            # 检查是否有需要清理的目录名
             for item in parent.iterdir():
-                if item.is_dir() and ' ' in item.name:
-                    new_name = item.name.replace(' ', '_')
-                    new_path = parent / new_name
-                    if not new_path.exists():
-                        try:
-                            item.rename(new_path)
-                            logger.info(f"重命名目录: {item.name} -> {new_name}")
-                            return new_path
-                        except Exception as e:
-                            logger.warning(f"重命名失败: {e}")
-                            return item
+                if item.is_dir():
+                    new_name = self._sanitize_filename(item.name)
+                    if new_name != item.name and new_name:
+                        new_path = parent / new_name
+                        if not new_path.exists():
+                            try:
+                                item.rename(new_path)
+                                logger.info(f"重命名目录: {item.name} -> {new_name}")
+                                return new_path
+                            except Exception as e:
+                                logger.warning(f"重命名失败: {e}")
+                                return item
             return extract_dir
         else:
-            # 多文件结构：检查解压目录名是否有空格
-            if ' ' in extract_dir.name:
-                new_name = extract_dir.name.replace(' ', '_')
+            # 多文件结构：检查解压目录名是否需要清理
+            new_name = self._sanitize_filename(extract_dir.name)
+            if new_name != extract_dir.name and new_name:
                 new_path = extract_dir.parent / new_name
                 if not new_path.exists() and extract_dir.exists():
                     try:

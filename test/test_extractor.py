@@ -546,6 +546,77 @@ class TestArchiveExtractor(unittest.TestCase):
         inner_dir = outer_dir / "nested"
         self.assertTrue((inner_dir / "inner_file.txt").exists())
 
+    def test_bracket_in_directory_name(self):
+        """测试目录名中的中括号内容移除"""
+        # 创建包含带中括号目录名的 ZIP
+        zip_path = self.temp_dir / "test_bracket.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr("photo [111P1V-6.82GB]/file1.txt", "content1")
+
+        # 解压
+        extractor = ArchiveExtractor(delete_after_extract=False)
+        result = extractor.extract(zip_path)
+        self.assertEqual(result['status'], 'success')
+
+        # 验证中括号内容被移除
+        final_dir = result['extract_dir']
+        self.assertEqual(final_dir.name, "photo")
+        self.assertTrue(final_dir.exists())
+        self.assertTrue((final_dir / "file1.txt").exists())
+
+    def test_bracket_only_content(self):
+        """测试目录名只有中括号内容时保留括号内内容"""
+        # 创建目录名只有中括号内容的 ZIP
+        zip_path = self.temp_dir / "test_bracket_only.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr("[111P1V-6.82GB]/file1.txt", "content1")
+
+        # 解压
+        extractor = ArchiveExtractor(delete_after_extract=False)
+        result = extractor.extract(zip_path)
+        self.assertEqual(result['status'], 'success')
+
+        # 验证保留括号内内容（不含括号）
+        final_dir = result['extract_dir']
+        self.assertEqual(final_dir.name, "111P1V-6.82GB")
+        self.assertTrue(final_dir.exists())
+
+    def test_bracket_with_space(self):
+        """测试目录名同时包含中括号和空格"""
+        # 创建包含中括号和空格的目录名
+        zip_path = self.temp_dir / "test_bracket_space.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr("my photos [230P1V-3.72GB]/file1.txt", "content1")
+
+        # 解压
+        extractor = ArchiveExtractor(delete_after_extract=False)
+        result = extractor.extract(zip_path)
+        self.assertEqual(result['status'], 'success')
+
+        # 验证中括号移除，空格替换为下划线
+        final_dir = result['extract_dir']
+        self.assertEqual(final_dir.name, "my_photos")
+        self.assertTrue(final_dir.exists())
+
+    def test_sanitize_filename_method(self):
+        """直接测试 _sanitize_filename 方法"""
+        extractor = ArchiveExtractor()
+
+        # 测试用例
+        test_cases = [
+            ("photo [111P1V-6.82GB]", "photo"),
+            ("[111P1V-6.82GB]", "111P1V-6.82GB"),
+            ("my photos [230P]", "my_photos"),
+            ("[only bracket]", "only_bracket"),
+            ("no bracket", "no_bracket"),
+            ("  spaces  [tag]  ", "spaces"),
+            ("", ""),
+        ]
+
+        for original, expected in test_cases:
+            result = extractor._sanitize_filename(original)
+            self.assertEqual(result, expected, f"Failed for: {original}")
+
     def test_space_in_directory_name(self):
         """测试目录名中的空格替换为下划线"""
         # 创建包含带空格目录名的 ZIP
