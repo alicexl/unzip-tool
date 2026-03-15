@@ -611,6 +611,10 @@ class TestArchiveExtractor(unittest.TestCase):
             ("no bracket", "no_bracket"),
             ("  spaces  [tag]  ", "spaces"),
             ("", ""),
+            # 中文标点符号测试
+            ("森萝财团_NO.401_团子_捆绑___（私房版）", "森萝财团_NO.401_团子_捆绑___(私房版)"),
+            ("测试【标签】", "测试[标签]"),
+            ("文件名，有标点。", "文件名,有标点."),
         ]
 
         for original, expected in test_cases:

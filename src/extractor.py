@@ -500,12 +500,13 @@ class ArchiveExtractor:
 
     def _sanitize_filename(self, name: str) -> str:
         """
-        清理文件名（移除中括号内容，替换空格为下划线）
+        清理文件名（移除中括号内容，替换空格为下划线，中文标点转英文）
 
         规则：
         1. 移除中括号 [...] 及其内容
         2. 如果移除后为空（或只有空格），则保留中括号内的内容（不含中括号）
         3. 替换空格为下划线
+        4. 中文标点符号转英文标点
 
         Args:
             name: 原始文件名
@@ -529,6 +530,18 @@ class ArchiveExtractor:
 
         # 替换空格为下划线
         cleaned = cleaned.replace(' ', '_')
+
+        # 中文标点符号转英文标点
+        punctuation_map = {
+            '（': '(', '）': ')',
+            '【': '[', '】': ']',
+            '，': ',', '。': '.',
+            '；': ';', '：': ':',
+            '！': '!', '？': '?',
+            '、': ',',
+        }
+        for cn, en in punctuation_map.items():
+            cleaned = cleaned.replace(cn, en)
 
         return cleaned if cleaned else name
 
