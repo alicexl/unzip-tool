@@ -235,9 +235,19 @@ class ArchiveExtractor:
         Returns:
             (是否是单一目录, 目录名)
         """
-        ext = archive_path.suffix.lower()
+        name = archive_path.name.lower()
 
         try:
+            # 处理分卷文件: .7z.001, .rar.001, .zip.001
+            if '.7z.' in name:
+                return self._check_7z_structure(archive_path)
+            elif '.rar.' in name:
+                return self._check_rar_structure(archive_path)
+            elif '.zip.' in name:
+                return self._check_zip_structure(archive_path)
+
+            # 普通文件
+            ext = archive_path.suffix.lower()
             if ext == '.zip':
                 return self._check_zip_structure(archive_path)
             elif ext == '.7z':
