@@ -5,6 +5,7 @@
 """
 
 import zipfile
+import tarfile
 import logging
 import re
 import shutil
@@ -27,7 +28,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # 支持的压缩包扩展名
-ARCHIVE_EXTENSIONS = {'.zip', '.rar', '.7z'}
+ARCHIVE_EXTENSIONS = {'.zip', '.rar', '.7z', '.tar'}
 
 # 分卷压缩文件的首卷扩展名（只处理首卷，避免重复）
 VOLUME_FIRST_EXTENSIONS = {'.001'}
@@ -186,13 +187,14 @@ class ArchiveExtractor:
         # 普通文件：返回 stem
         return archive_path.stem
 
-    def get_extract_dir(self, archive_path: Path, force_subfolder: bool = False) -> Path:
+    def get_extract_dir(self, archive_path: Path, force_subfolder: bool = False, skip_level: bool = True) -> Path:
         """
         获取解压目标目录
 
         Args:
             archive_path: 压缩包路径
             force_subfolder: 强制使用同名目录
+            skip_level: 单目录结构时是否跳过一层目录（嵌套压缩包时应为 False）
 
         Returns:
             解压目标目录（目录名已清理：中括号+空格）
@@ -212,14 +214,24 @@ class ArchiveExtractor:
         is_single_dir, dir_name = self._check_archive_structure(archive_path)
 
         if is_single_dir and dir_name:
-            # 单目录：解压到当前目录（直接使用内部目录名）
-            dir_name = self._sanitize_filename(dir_name)
-            target = parent / dir_name
-            if target.exists():
-                # 目录已存在，回退到同名目录
-                fallback_name = self._sanitize_filename(base_name)
-                return parent / fallback_name
-            return target
+            # 单目录结构
+            if skip_level:
+                # 跳过一层目录：解压到父目录，使用内部目录名
+                dir_name = self._sanitize_filename(dir_name)
+                target = parent / dir_name
+                if target.exists():
+                    # 目录已存在，回退到同名目录
+                    fallback_name = self._sanitize_filename(base_name)
+                    return parent / fallback_name
+                return target
+            else:
+                # 不跳级：解压到同名目录下的内部目录
+                archive_dir = self._sanitize_filename(base_name)
+                inner_dir = self._sanitize_filename(dir_name)
+                target = parent / archive_dir / inner_dir
+                if target.exists():
+                    return parent / archive_dir
+                return parent / archive_dir
         else:
             # 多文件/多目录：解压到同名目录
             dir_name = self._sanitize_filename(base_name)
@@ -254,10 +266,67 @@ class ArchiveExtractor:
                 return self._check_7z_structure(archive_path)
             elif ext == '.rar':
                 return self._check_rar_structure(archive_path)
+            elif ext == '.tar':
+                return self._check_tar_structure(archive_path)
         except Exception as e:
             logger.debug(f"检查压缩包结构失败: {e}")
 
         return False, None
+
+    def _check_all_archives(self, archive_path: Path) -> bool:
+        """
+        检查压缩包内容是否全部是压缩包文件
+
+        Args:
+            archive_path: 压缩包路径
+
+        Returns:
+            是否全部是压缩包
+        """
+        name = archive_path.name.lower()
+
+        try:
+            # 获取压缩包内的文件列表
+            if '.7z.' in name or archive_path.suffix.lower() == '.7z':
+                if not SEVENZ_SUPPORTED:
+                    return False
+                with py7zr.SevenZipFile(archive_path, 'r', password=self.password) as szf:
+                    names = szf.getnames()
+            elif '.rar.' in name or archive_path.suffix.lower() == '.rar':
+                if not RAR_SUPPORTED:
+                    return False
+                with rarfile.RarFile(archive_path, 'r') as rf:
+                    names = rf.namelist()
+            elif '.zip.' in name or archive_path.suffix.lower() == '.zip':
+                with zipfile.ZipFile(archive_path, 'r') as zf:
+                    names = zf.namelist()
+            elif archive_path.suffix.lower() == '.tar':
+                with tarfile.open(archive_path, 'r:*') as tf:
+                    names = tf.getnames()
+            else:
+                return False
+
+            if not names:
+                return False
+
+            # 检查每个文件是否是压缩包
+            for n in names:
+                # 获取文件名（去掉路径）
+                filename = n.split('/')[-1] if '/' in n else n
+                if not filename:
+                    continue
+
+                # 检查扩展名
+                ext = Path(filename).suffix.lower()
+                if ext not in ARCHIVE_EXTENSIONS and ext not in VOLUME_FIRST_EXTENSIONS:
+                    # 如果有任何一个文件不是压缩包，返回 False
+                    return False
+
+            return True
+
+        except Exception as e:
+            logger.debug(f"检查压缩包内容失败: {e}")
+            return False
 
     def _check_zip_structure(self, archive_path: Path) -> Tuple[bool, Optional[str]]:
         """检查 ZIP 结构"""
@@ -325,6 +394,31 @@ class ArchiveExtractor:
             if len(top_items) == 1:
                 item = list(top_items)[0]
                 if any(n.startswith(item + '/') for n in names):
+                    return True, item
+
+        return False, None
+
+    def _check_tar_structure(self, archive_path: Path) -> Tuple[bool, Optional[str]]:
+        """检查 TAR 结构"""
+        with tarfile.open(archive_path, 'r:*') as tf:
+            names = tf.getnames()
+            if not names:
+                return False, None
+
+            # 获取顶层项目（同时支持 / 和 \\ 作为分隔符）
+            top_items = set()
+            for name in names:
+                # 统一处理不同的路径分隔符
+                normalized = name.replace('\\', '/')
+                first_part = normalized.split('/')[0]
+                if first_part:
+                    top_items.add(first_part)
+
+            if len(top_items) == 1:
+                item = list(top_items)[0]
+                # 检查是否有子文件（统一分隔符后检查）
+                item_prefix = item + '/'
+                if any(n.replace('\\', '/').startswith(item_prefix) for n in names):
                     return True, item
 
         return False, None
@@ -405,6 +499,36 @@ class ArchiveExtractor:
             return False, f"无效的 RAR 文件: {e}"
         except rarfile.NeedFirstVolume:
             return False, "需要 RAR 分卷的第一个文件"
+        except Exception as e:
+            return False, f"解压失败: {e}"
+
+    def extract_tar(self, archive_path: Path, extract_dir: Path, progress_callback=None) -> Tuple[bool, str]:
+        """
+        解压 TAR 文件（支持 .tar, .tar.gz, .tar.bz2, .tar.xz）
+
+        Args:
+            archive_path: 压缩包路径
+            extract_dir: 解压目标目录
+            progress_callback: 进度回调 (current, total, filename)
+
+        Returns:
+            (是否成功, 消息)
+        """
+        try:
+            with tarfile.open(archive_path, 'r:*') as tf:
+                members = tf.getmembers()
+                total = len(members)
+
+                # 逐个解压并显示进度
+                for i, member in enumerate(members):
+                    tf.extract(member, extract_dir)
+                    if progress_callback:
+                        progress_callback(i + 1, total, member.name)
+
+            return True, "解压成功"
+
+        except tarfile.TarError as e:
+            return False, f"无效的 TAR 文件: {e}"
         except Exception as e:
             return False, f"解压失败: {e}"
 
@@ -625,9 +749,11 @@ class ArchiveExtractor:
         # 判断是否是单目录结构
         is_single_dir, _ = self._check_archive_structure(archive_path)
 
-        # 对于单目录结构，直接解压到父目录（压缩包所在目录）
-        # 这样内部目录会直接创建，避免嵌套
-        if is_single_dir:
+        # 检测是否是"纯压缩包"结构（里面全是压缩包）
+        is_all_archives = self._check_all_archives(archive_path)
+
+        # 对于单目录结构或纯压缩包结构，直接解压到父目录
+        if is_single_dir or is_all_archives:
             actual_extract_dir = archive_path.parent
         else:
             # 非单目录结构，解压到同名目录
@@ -658,6 +784,8 @@ class ArchiveExtractor:
             success, message = self.extract_rar(archive_path, actual_extract_dir, file_progress_callback)
         elif ext == '.7z':
             success, message = self.extract_7z(archive_path, actual_extract_dir, file_progress_callback)
+        elif ext == '.tar':
+            success, message = self.extract_tar(archive_path, actual_extract_dir, file_progress_callback)
         else:
             result['message'] = f"不支持的格式: {ext}"
             return result
@@ -666,8 +794,13 @@ class ArchiveExtractor:
             result['status'] = 'success'
             result['message'] = message
 
-            # 重命名目录（将空格替换为下划线）
-            final_dir = self._rename_extracted_dir(archive_path, extract_dir, is_single_dir)
+            # 确定最终的解压目录
+            if is_all_archives:
+                # 纯压缩包结构：直接使用 actual_extract_dir（父目录）
+                final_dir = actual_extract_dir
+            else:
+                # 重命名目录（将空格替换为下划线）
+                final_dir = self._rename_extracted_dir(archive_path, actual_extract_dir, is_single_dir)
             result['extract_dir'] = final_dir
             logger.info(f"解压成功: {archive_path.name} -> {final_dir.name}")
 
