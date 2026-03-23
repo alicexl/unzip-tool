@@ -872,10 +872,16 @@ class ArchiveExtractor:
             'details': []
         }
 
+        # 记录已处理的压缩包，避免重复添加
+        processed_archives = set()
+        # 记录初始扫描的压缩包（这些不应该被当作嵌套压缩包重复添加）
+        initial_archives = set(archives)
+
         # 使用索引遍历，支持动态添加任务
         i = 0
         while i < len(archives):
             archive_path = archives[i]
+            processed_archives.add(archive_path)  # 标记为已处理
 
             # 创建文件级进度回调包装器
             def file_callback(current, total, filename):
@@ -890,12 +896,19 @@ class ArchiveExtractor:
                 if result.get('deleted'):
                     stats['deleted'] += result.get('deleted_count', 1)
 
-                # 扫描解压目录，发现新压缩包
+                # 扫描解压目录，发现新压缩包（只添加本次解压出来的）
                 extract_dir = result.get('extract_dir')
                 if extract_dir and extract_dir.exists():
-                    new_archives = self.scan_archives(extract_dir)
+                    # 只查找 extract_dir 下新增的压缩包（排除初始和已处理的）
+                    new_archives = [
+                        f for f in extract_dir.rglob('*')
+                        if f.is_file()
+                        and f not in processed_archives
+                        and f not in initial_archives
+                        and self.is_archive(f)
+                        and not self.is_volume_file(f)
+                    ]
                     if new_archives:
-                        # 追加到任务列表末尾
                         archives.extend(new_archives)
                         stats['total'] = len(archives)
                         stats['discovered'] += len(new_archives)
