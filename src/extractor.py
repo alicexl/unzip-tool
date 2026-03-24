@@ -872,10 +872,12 @@ class ArchiveExtractor:
             'details': []
         }
 
-        # 记录已处理的压缩包，避免重复添加
+        # 记录已处理的压缩包
         processed_archives = set()
-        # 记录初始扫描的压缩包（这些不应该被当作嵌套压缩包重复添加）
+        # 记录初始扫描的压缩包
         initial_archives = set(archives)
+        # 记录已在任务队列中的压缩包（包括初始+递归发现的），避免重复添加
+        queued_archives = set(archives)
 
         # 使用索引遍历，支持动态添加任务
         i = 0
@@ -896,20 +898,20 @@ class ArchiveExtractor:
                 if result.get('deleted'):
                     stats['deleted'] += result.get('deleted_count', 1)
 
-                # 扫描解压目录，发现新压缩包（只添加本次解压出来的）
+                # 扫描解压目录，发现新压缩包
                 extract_dir = result.get('extract_dir')
                 if extract_dir and extract_dir.exists():
-                    # 只查找 extract_dir 下新增的压缩包（排除初始和已处理的）
+                    # 只添加不在队列中的压缩包
                     new_archives = [
                         f for f in extract_dir.rglob('*')
                         if f.is_file()
-                        and f not in processed_archives
-                        and f not in initial_archives
+                        and f not in queued_archives
                         and self.is_archive(f)
                         and not self.is_volume_file(f)
                     ]
                     if new_archives:
                         archives.extend(new_archives)
+                        queued_archives.update(new_archives)
                         stats['total'] = len(archives)
                         stats['discovered'] += len(new_archives)
                         logger.info(f"发现 {len(new_archives)} 个嵌套压缩包，已追加到任务列表")

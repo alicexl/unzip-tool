@@ -92,7 +92,9 @@ def extract(directory: Path, password: str):
         rel_path = archive_name
         if len(rel_path) > 30:
             rel_path = "..." + rel_path[-27:]
-        print(f"\r    {rel_path}: [{file_current}/{file_total}] {display_name}", end="", flush=True)
+        # 构建输出内容，用空格填充到 80 字符以覆盖残留
+        content = f"    {rel_path}: [{file_current}/{file_total}] {display_name}"
+        print(f"\r{content:<80}", end="", flush=True)
 
     def show_progress(current, total, name, result):
         """显示压缩包级进度"""
