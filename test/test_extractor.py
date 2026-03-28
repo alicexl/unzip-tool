@@ -61,8 +61,8 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertTrue(self.extractor.is_archive(Path("test.RAR")))
         self.assertTrue(self.extractor.is_archive(Path("test.7z")))
         self.assertTrue(self.extractor.is_archive(Path("test.7Z")))
+        self.assertTrue(self.extractor.is_archive(Path("test.tar")))
         self.assertFalse(self.extractor.is_archive(Path("test.txt")))
-        self.assertFalse(self.extractor.is_archive(Path("test.tar")))
 
     def test_get_extract_dir(self):
         """测试获取解压目录（同名目录）"""
@@ -260,7 +260,8 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertIn('.zip', ARCHIVE_EXTENSIONS)
         self.assertIn('.rar', ARCHIVE_EXTENSIONS)
         self.assertIn('.7z', ARCHIVE_EXTENSIONS)
-        self.assertEqual(len(ARCHIVE_EXTENSIONS), 3)
+        self.assertIn('.tar', ARCHIVE_EXTENSIONS)
+        self.assertEqual(len(ARCHIVE_EXTENSIONS), 4)
 
     def test_extract_7z_with_password(self):
         """测试带密码的 7z 解压"""
@@ -515,14 +516,14 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertTrue((extract_dir / "dir2").exists())
 
     def test_extract_all_discovered_archives(self):
-        """测试递归解压嵌套压缩包"""
+        """测试递归解压嵌套压缩包（纯压缩包结构直接解压到父目录）"""
         # 创建嵌套的压缩包结构
         # inner.zip 包含文件
         inner_zip = self.temp_dir / "_inner.zip"
         with zipfile.ZipFile(inner_zip, 'w') as zf:
             zf.writestr("inner_file.txt", "inner content")
 
-        # outer.zip 包含 inner.zip
+        # outer.zip 包含 inner.zip（纯压缩包结构）
         outer_zip = self.temp_dir / "outer.zip"
         with zipfile.ZipFile(outer_zip, 'w') as zf:
             zf.write(inner_zip, "nested.zip")
@@ -541,9 +542,10 @@ class TestArchiveExtractor(unittest.TestCase):
         self.assertEqual(stats['success'], 2)  # 两个都成功
         self.assertEqual(stats['total'], 2)  # 总共 2 个任务
 
-        # 验证文件解压成功
-        outer_dir = self.temp_dir / "outer"
-        inner_dir = outer_dir / "nested"
+        # 纯压缩包结构直接解压到父目录
+        # outer.zip 解压到 temp_dir（因为是纯压缩包结构）
+        # nested.zip 解压到 temp_dir/nested/（因为包含普通文件）
+        inner_dir = self.temp_dir / "nested"
         self.assertTrue((inner_dir / "inner_file.txt").exists())
 
     def test_bracket_in_directory_name(self):

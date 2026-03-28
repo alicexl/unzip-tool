@@ -675,7 +675,7 @@ class ArchiveExtractor:
 
         Args:
             archive_path: 压缩包路径
-            extract_dir: 预期的解压目录
+            extract_dir: 预期的解压目录（非单目录结构时使用）
             is_single_dir: 是否是单目录结构
 
         Returns:
@@ -684,8 +684,7 @@ class ArchiveExtractor:
         parent = archive_path.parent
 
         if is_single_dir:
-            # 单目录结构：解压到父目录，需要找到实际创建的目录
-            # 检查是否有需要清理的目录名
+            # 单目录结构：解压到父目录，检查是否有需要清理的目录名
             for item in parent.iterdir():
                 if item.is_dir():
                     new_name = self._sanitize_filename(item.name)
@@ -699,7 +698,8 @@ class ArchiveExtractor:
                             except Exception as e:
                                 logger.warning(f"重命名失败: {e}")
                                 return item
-            return extract_dir
+            # 单目录结构实际解压到父目录
+            return parent
         else:
             # 多文件结构：检查解压目录名是否需要清理
             new_name = self._sanitize_filename(extract_dir.name)
